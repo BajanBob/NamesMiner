@@ -1,0 +1,115 @@
+package com.namesminer.app
+
+import android.content.Context
+import android.provider.ContactsContract.CommonDataKinds.Phone
+import android.provider.ContactsContract.CommonDataKinds.StructuredName
+import android.provider.ContactsContract.Data
+
+/** Reads the phone's contacts and returns every number belonging to a contact tagged with the identifier. */
+object ContactScanner {
+    private val splitter = Regex("[^\\p{L}\\p{N}]+")
+
+    private class PhoneRow(val number: String, val normalized: String?, val type: Int, val label: String?)
+
+    private class Contact {
+        var display = ""
+        var given: String? = null
+        val names = mutableListOf<String>()
+        val phones = mutableListOf<PhoneRow>()
+    }
+
+    fun matches(text: String?, identifier: String, wholeWord: Boolean, exactCase: Boolean): Boolean {
+        if (text.isNullOrBlank() || identifier.isBlank()) return false
+        val idIsWord = identifier.all { it.isLetterOrDigit() }
+        return if (wholeWord && idIsWord) {
+            text.split(splitter).any { it.equals(identifier, ignoreCase = !exactCase) }
+        } else {
+            text.contains(identifier, ignoreCase = !exactCase)
+        }
+    }
+
+    /** First usable word of the name that isn't the identifier itself, for the {name} placeholder. */
+    fun firstName(candidates: List<String>, identifier: String, exactCase: Boolean): String {
+        for (c in candidates) {
+            val word = c.split(splitter).firstOrNull {
+                it.isNotBlank() && !it.equals(identifier, ignoreCase = !exactCase) && it.any { ch -> ch.isLetter() }
+            }
+            if (word != null) return word
+        }
+        return ""
+    }
+
+    /** Key used to spot the same number saved twice. Prefers Android's E.164 form (+countrycode…). */
+    fun normalize(number: String, e164: String?): String {
+        if (!e164.isNullOrBlank()) return e164
+        val plus = number.trim().startsWith("+")
+        val digits = number.filter { it.isDigit() }
+        return (if (plus) "+" else "") + digits
+    }
+
+    fun scan(
+        ctx: Context,
+        identifier: String,
+        wholeWord: Boolean,
+        exactCase: Boolean,
+        mobileOnly: Boolean
+    ): List<Recipient> {
+        val contacts = LinkedHashMap<Long, Contact>()
+        val projection = arrayOf(
+            Data.CONTACT_ID, Data.MIMETYPE, Data.DISPLAY_NAME,
+            Data.DATA1, Data.DATA2, Data.DATA3, Data.DATA4, Data.DATA5, Data.DATA6
+        )
+        ctx.contentResolver.query(
+            Data.CONTENT_URI,
+            projection,
+            "${Data.MIMETYPE} IN (?, ?)",
+            arrayOf(StructuredName.CONTENT_ITEM_TYPE, Phone.CONTENT_ITEM_TYPE),
+            null
+        )?.use { c ->
+            while (c.moveToNext()) {
+                val contact = contacts.getOrPut(c.getLong(0)) { Contact() }
+                val display = c.getString(2)
+                if (contact.display.isEmpty() && display != null) contact.display = display
+                when (c.getString(1)) {
+                    StructuredName.CONTENT_ITEM_TYPE -> {
+                        // DATA1 display, DATA2 first, DATA3 surname, DATA4 prefix, DATA5 middle, DATA6 suffix
+                        for (col in 3..8) {
+                            val v = c.getString(col)
+                            if (!v.isNullOrBlank()) contact.names.add(v)
+                        }
+                        if (contact.given == null) contact.given = c.getString(4)
+                    }
+                    Phone.CONTENT_ITEM_TYPE -> {
+                        // DATA1 number, DATA2 type, DATA3 custom label, DATA4 normalized (E.164)
+                        val num = c.getString(3)
+                        if (!num.isNullOrBlank()) {
+                            val type = c.getString(4)?.toIntOrNull() ?: Phone.TYPE_OTHER
+                            contact.phones.add(PhoneRow(num, c.getString(6), type, c.getString(5)))
+                        }
+                    }
+                }
+            }
+        }
+
+        val out = LinkedHashMap<String, Recipient>()
+        for (ct in contacts.values) {
+            val allNames = ct.names + ct.display
+            if (allNames.none { matches(it, identifier, wholeWord, exactCase) }) continue
+            val first = firstName(listOfNotNull(ct.given, ct.display), identifier, exactCase)
+            for (p in ct.phones) {
+                if (mobileOnly && p.type != Phone.TYPE_MOBILE && p.type != Phone.TYPE_WORK_MOBILE) continue
+                val key = normalize(p.number, p.normalized)
+                if (key.count { it.isDigit() } < 3 || out.containsKey(key)) continue
+                val label = Phone.getTypeLabel(ctx.resources, p.type, p.label).toString()
+                out[key] = Recipient(
+                    id = key,
+                    name = ct.display.ifBlank { p.number },
+                    firstName = first,
+                    number = p.number.trim(),
+                    label = label
+                )
+            }
+        }
+        return out.values.sortedBy { it.name.lowercase() }
+    }
+}
