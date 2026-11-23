@@ -1,6 +1,6 @@
 # Names Miner
 
-Android app that finds every client in your phone's contacts whose name or surname contains an identifier (default **CL**), lists their numbers, and texts them by SMS from your own SIM, either in **blocks** (5 every 60 s by default) or as a **one-time broadcast** to everyone.
+Android app that finds every client in your phone's contacts tagged **CL** or **Coopmed** (any case, as a separate word in the first name or surname), lists their numbers, and texts them by SMS from your own SIM, either in **blocks** (5 every 60 s by default) or as a **one-time broadcast** to everyone.
 
 Works with any country's numbers. Nothing is uploaded anywhere; the list stays on the phone.
 
@@ -12,9 +12,9 @@ Works with any country's numbers. Nothing is uploaded anywhere; the list stays o
 Each push to `main` rebuilds the APK automatically (Actions tab → Build APK).
 
 ## Using it
-1. **Find clients**: check the identifier (CL), then tap **Scan contacts**. Untick anyone who shouldn't get the message.
-   - *Whole word only* matches `CL John`, `John Smith CL`, `Smith-CL` but not `CLARKE`.
-   - Turn it off to match `CL` anywhere in the name (e.g. `JohnCL`).
+1. **Find clients**: the tags box holds `CL, Coopmed` (add more, separated by commas). Tap **Scan contacts**, then untick anyone who shouldn't get the message.
+   - Matches a tag as its own word, in any case: `CL John`, `Mary cl`, `cL Smith`, `Smith-CL`, `C.L. Brown`, `Coopmed Ann`.
+   - Ignores names that just contain the letters: `Clarke`, `Michael`, `Clyde`, `Coopmedic`.
 2. **Message**: type your text; `{name}` becomes the client's first name.
 3. **Send**: choose *In blocks* (size and pause adjustable) or *One-time broadcast*, then **Start sending**. It keeps going with the screen off; stop it from the notification or the Stop button.
 4. **Export list** shares the list (name, number, status) as CSV to email, WhatsApp, Drive and so on.

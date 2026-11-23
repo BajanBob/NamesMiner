@@ -26,8 +26,6 @@ import kotlin.math.roundToInt
 class MainActivity : Activity() {
 
     private lateinit var idField: EditText
-    private lateinit var wholeWord: CheckBox
-    private lateinit var exactCase: CheckBox
     private lateinit var mobileOnly: CheckBox
     private lateinit var summary: TextView
     private lateinit var rows: LinearLayout
@@ -85,16 +83,17 @@ class MainActivity : Activity() {
 
         root.addView(heading("1 · Find clients in your contacts"))
         idField = EditText(this).apply {
-            hint = "Identifier, e.g. CL"
+            hint = "Tags, separated by commas"
             isSingleLine = true
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
+            inputType = InputType.TYPE_CLASS_TEXT
         }
-        root.addView(labeled("Identifier in the name or surname", idField))
-        wholeWord = check("Whole word only: matches \"CL John\" or \"Smith-CL\", not \"CLARKE\"")
-        exactCase = check("Exact case: \"CL\" but not \"cl\"")
+        root.addView(labeled("Client tags in the first name or surname (any case)", idField))
+        root.addView(TextView(this).apply {
+            textSize = 12f
+            text = "Tags must stand as their own word: \"CL John\", \"Mary cl\", \"C.L. Brown\", \"Coopmed Ann\" match. " +
+                "Names that merely contain the letters, like Clarke or Michael, are ignored."
+        })
         mobileOnly = check("Mobile-labelled numbers only")
-        root.addView(wholeWord)
-        root.addView(exactCase)
         root.addView(mobileOnly)
         root.addView(button("Scan contacts") { scan() })
         summary = TextView(this).apply { setPadding(0, dp(8), 0, dp(4)) }
@@ -295,19 +294,17 @@ class MainActivity : Activity() {
     private fun scan() {
         if (Store.running) { toast("Wait for sending to finish, or tap Stop."); return }
         withPermissions(arrayOf(Manifest.permission.READ_CONTACTS)) {
-            val identifier = idField.text.toString().trim()
-            if (identifier.isEmpty()) {
-                toast("Enter the identifier first (e.g. CL).")
+            val tags = ContactScanner.parseTags(idField.text.toString())
+            if (tags.isEmpty()) {
+                toast("Enter at least one tag, e.g. CL, Coopmed.")
                 return@withPermissions
             }
             saveSettings()
             summary.text = "Scanning contacts…"
-            val ww = wholeWord.isChecked
-            val ec = exactCase.isChecked
             val mo = mobileOnly.isChecked
             Thread {
                 val found = try {
-                    ContactScanner.scan(this, identifier, ww, ec, mo)
+                    ContactScanner.scan(this, tags, mo)
                 } catch (e: Exception) {
                     null
                 }
@@ -318,7 +315,7 @@ class MainActivity : Activity() {
                         Store.replaceWithScan(found)
                         Store.save(this)
                         refresh()
-                        toast("Found ${found.size} numbers for \"$identifier\".")
+                        toast("Found ${found.size} numbers tagged ${tags.joinToString(" or ")}.")
                     }
                 }
             }.start()
@@ -449,9 +446,7 @@ class MainActivity : Activity() {
 
     private fun loadSettings() {
         val p = Store.prefs(this)
-        idField.setText(p.getString("identifier", "CL"))
-        wholeWord.isChecked = p.getBoolean("wholeWord", true)
-        exactCase.isChecked = p.getBoolean("exactCase", true)
+        idField.setText(p.getString("tags", "CL, Coopmed"))
         mobileOnly.isChecked = p.getBoolean("mobileOnly", false)
         message.setText(p.getString("message", ""))
         askReply.isChecked = p.getBoolean("askReply", true)
@@ -463,9 +458,7 @@ class MainActivity : Activity() {
 
     private fun saveSettings() {
         Store.prefs(this).edit()
-            .putString("identifier", idField.text.toString().trim())
-            .putBoolean("wholeWord", wholeWord.isChecked)
-            .putBoolean("exactCase", exactCase.isChecked)
+            .putString("tags", idField.text.toString().trim())
             .putBoolean("mobileOnly", mobileOnly.isChecked)
             .putString("message", message.text.toString())
             .putBoolean("askReply", askReply.isChecked)

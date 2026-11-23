@@ -18,21 +18,35 @@ object ContactScanner {
         val phones = mutableListOf<PhoneRow>()
     }
 
-    fun matches(text: String?, identifier: String, wholeWord: Boolean, exactCase: Boolean): Boolean {
-        if (text.isNullOrBlank() || identifier.isBlank()) return false
-        val idIsWord = identifier.all { it.isLetterOrDigit() }
-        return if (wholeWord && idIsWord) {
-            text.split(splitter).any { it.equals(identifier, ignoreCase = !exactCase) }
-        } else {
-            text.contains(identifier, ignoreCase = !exactCase)
+    // Joins dotted initials so "C.L." or "c.l" is read as the word "CL".
+    private val dottedInitials = Regex("(?<![\\p{L}\\p{N}])(\\p{L})\\.\\s?(\\p{L})\\.?(?![\\p{L}\\p{N}])")
+
+    private fun words(text: String): List<String> =
+        text.replace(dottedInitials, "$1$2").split(splitter).filter { it.isNotBlank() }
+
+    /** Parses "CL, Coopmed" into separate tags. */
+    fun parseTags(raw: String): List<String> =
+        raw.split(',', ';').map { it.trim() }.filter { it.isNotEmpty() }
+
+    /**
+     * True only when a tag appears as its own word, in any letter case:
+     * "CL John", "john cl", "Smith-Cl", "C.L. Brown", "COOPMED Jane" match;
+     * "Clarke", "Michael", "Clyde" do not.
+     */
+    fun matches(text: String?, tags: List<String>): Boolean {
+        if (text.isNullOrBlank() || tags.isEmpty()) return false
+        val w = words(text)
+        return tags.any { tag ->
+            if (tag.all { it.isLetterOrDigit() }) w.any { it.equals(tag, ignoreCase = true) }
+            else text.contains(tag, ignoreCase = true)
         }
     }
 
-    /** First usable word of the name that isn't the identifier itself, for the {name} placeholder. */
-    fun firstName(candidates: List<String>, identifier: String, exactCase: Boolean): String {
+    /** First real word of the name that isn't a tag, for the {name} placeholder. */
+    fun firstName(candidates: List<String>, tags: List<String>): String {
         for (c in candidates) {
-            val word = c.split(splitter).firstOrNull {
-                it.isNotBlank() && !it.equals(identifier, ignoreCase = !exactCase) && it.any { ch -> ch.isLetter() }
+            val word = words(c).firstOrNull { wd ->
+                wd.any { it.isLetter() } && tags.none { wd.equals(it, ignoreCase = true) }
             }
             if (word != null) return word
         }
@@ -49,9 +63,7 @@ object ContactScanner {
 
     fun scan(
         ctx: Context,
-        identifier: String,
-        wholeWord: Boolean,
-        exactCase: Boolean,
+        tags: List<String>,
         mobileOnly: Boolean
     ): List<Recipient> {
         val contacts = LinkedHashMap<Long, Contact>()
@@ -94,8 +106,8 @@ object ContactScanner {
         val out = LinkedHashMap<String, Recipient>()
         for (ct in contacts.values) {
             val allNames = ct.names + ct.display
-            if (allNames.none { matches(it, identifier, wholeWord, exactCase) }) continue
-            val first = firstName(listOfNotNull(ct.given, ct.display), identifier, exactCase)
+            if (allNames.none { matches(it, tags) }) continue
+            val first = firstName(listOfNotNull(ct.given, ct.display), tags)
             for (p in ct.phones) {
                 if (mobileOnly && p.type != Phone.TYPE_MOBILE && p.type != Phone.TYPE_WORK_MOBILE) continue
                 val key = normalize(p.number, p.normalized)
