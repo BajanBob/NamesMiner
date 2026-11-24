@@ -34,3 +34,13 @@ Each push to `main` rebuilds the APK automatically (Actions tab → Build APK).
 - Dual-SIM phones: messages go from your default SMS SIM (Settings › Connections › SIM manager).
 - Messages also show in your normal Messages app; replies arrive there as usual.
 - Some carriers don't return delivery reports. Those messages stay at *Sent* even when they arrive.
+
+## Desktop and web versions (Windows, Linux, any browser)
+Computers can't send SMS from your phone's SIM, so the desktop version works from a contacts export and sends through **WhatsApp**:
+1. Export contacts from the phone (Contacts › ☰ › Manage contacts › Import or export › Export to a .vcf) or from contacts.google.com (vCard or Google CSV), and copy the file to the computer.
+2. Open Names Miner and drop the file in. Tags work as on Android (CL, Coopmed, any case, whole words).
+3. Set the country calling code for numbers saved without a "+", type the message, and press **Open next chat**. Each chat opens in WhatsApp Desktop or WhatsApp Web with the message typed; press Send, then come back for the next one. A pause follows each block (default 5, 60 s).
+
+Downloads (Releases › latest): `NamesMiner-Windows-Setup.exe`, `NamesMiner-Windows-Portable.exe`, `NamesMiner-Windows.zip`, `NamesMiner-Linux.AppImage`, `.deb`, `.tar.gz`, and `NamesMiner-Web.html` (open in any browser).
+
+Windows may show "Windows protected your PC" because the app isn't code-signed: click **More info › Run anyway**.

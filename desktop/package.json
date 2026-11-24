@@ -1,0 +1,60 @@
+{
+  "name": "names-miner-desktop",
+  "productName": "Names Miner",
+  "version": "1.1.0",
+  "description": "Find tagged clients in a contacts export and message them via WhatsApp",
+  "main": "main.js",
+  "author": {
+    "name": "BajanBob",
+    "email": "BajanBob@users.noreply.github.com"
+  },
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win --x64 --publish never",
+    "dist:linux": "electron-builder --linux --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "com.namesminer.desktop",
+    "productName": "Names Miner",
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable",
+        "zip"
+      ],
+      "artifactName": "NamesMiner-Windows.${ext}"
+    },
+    "nsis": {
+      "artifactName": "NamesMiner-Windows-Setup.exe",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    },
+    "portable": {
+      "artifactName": "NamesMiner-Windows-Portable.exe"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb",
+        "tar.gz"
+      ],
+      "category": "Office",
+      "maintainer": "BajanBob <BajanBob@users.noreply.github.com>",
+      "artifactName": "NamesMiner-Linux.${ext}"
+    }
+  }
+}
