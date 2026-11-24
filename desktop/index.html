@@ -78,15 +78,21 @@
         <select id="via"><option value="app">WhatsApp Desktop app</option><option value="web">WhatsApp Web (browser)</option></select></label>
       <label>Block size
         <input type="number" id="block" min="1" max="100" value="5"></label>
-      <label>Pause after block (s)
-        <input type="number" id="pause" min="0" max="3600" value="60"></label>
+      <label>Minutes between blocks
+        <input type="number" id="gapMin" min="0" max="240" value="20"></label>
+    </div>
+    <label class="inline"><input type="checkbox" id="quietOn" checked> Good-neighbour hours: only send between</label>
+    <div class="row">
+      <label>From (hour 0–23)<input type="number" id="qStart" min="0" max="23" value="8"></label>
+      <label>Until (hour 0–23)<input type="number" id="qEnd" min="0" max="23" value="20"></label>
     </div>
     <div class="row">
       <button class="primary" id="next" type="button">Open next chat</button>
       <button id="skip" type="button">Skip</button>
     </div>
     <div class="progress" id="progress">Load a contacts file to begin.</div>
-    <p class="note">Each chat opens with your message typed. Press Send in WhatsApp, come back, then press <b>Open next chat</b> (or the N key). WhatsApp doesn't let any app send automatically from a personal account.</p>
+    <p class="note">Each chat opens with your message typed. Press Send in WhatsApp, come back, then press <b>Open next chat</b> (or the N key). After each block the button locks for the set minutes and a notification tells you when the next block is ready. The same message is never opened twice for the same number, and anyone marked Opted out is never messaged again.</p>
+    <p class="note">WhatsApp doesn't tell other apps about ticks. After sending, set each client's status from what WhatsApp shows (✓ sent, ✓✓ delivered, blue ✓✓ read, a reply, or "not on WhatsApp"). The report uses those marks.</p>
   </section>
 
   <section class="panel list" aria-labelledby="h2s">
@@ -100,6 +106,12 @@
       <button type="button" id="exportCsv">Export CSV</button>
       <button type="button" id="exportVcf">Export tagged as .vcf</button>
       <button type="button" id="copyNums">Copy numbers</button>
+      <button type="button" id="reportBtn" class="primary">Report</button>
+    </div>
+    <div id="report" class="progress" hidden style="white-space:pre-wrap;max-height:50vh;overflow:auto"></div>
+    <div class="row" id="reportActions" hidden>
+      <button type="button" id="exportReport">Export report (.txt)</button>
+      <button type="button" id="exportNotSeen">Export not seen + failed (.csv)</button>
     </div>
     <p class="stats" id="stats"></p>
     <div class="scroll">
@@ -121,7 +133,16 @@ const store = {
 const $ = (id) => document.getElementById(id);
 let contacts = store.get("contacts", []);
 let rows = store.get("rows", []);
-let inBlock = 0, pauseUntil = 0, pauseTimer = null;
+let sentLog = new Set(store.get("sentLog", []));
+let optOuts = new Set(store.get("optOuts", []));
+let blockStartedAt = store.get("blockStartedAt", 0), inBlock = store.get("inBlock", 0), nextAllowedAt = store.get("nextAllowedAt", 0), timer = null;
+const STATUSES = [
+  ["", "Not sent"], ["Opened", "Chat opened (not confirmed)"], ["Sent", "Sent ✓"], ["Delivered", "Delivered ✓✓"],
+  ["Read", "Read (blue ✓✓)"], ["Replied", "Replied"], ["NotOnWA", "Failed: not on WhatsApp"],
+  ["Failed", "Failed: other"], ["OptedOut", "Opted out"], ["Skipped", "Skipped: already had this message"]];
+const statusLabel = (k) => (STATUSES.find(x => x[0] === k) || ["", k])[1];
+function hash(t) { let h = 5381; t = t.trim().replace(/\s+/g, " "); for (let i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
+const fp = (r) => r.wa + "|" + hash(template());
 
 // ---------- matching (same rules as the Android app) ----------
 const SPLIT = /[^\p{L}\p{N}]+/u;
@@ -290,7 +311,7 @@ function rebuild() {
       if (key.replace(/\D/g, "").length < 3 || seen.has(key)) continue;
       const o = old.get(key);
       seen.set(key, { key, name: c.display || c.names[0] || p.number, first, number: p.number, label: p.label, wa,
-        selected: o ? o.selected : true, status: o ? o.status : "" });
+        selected: optOuts.has(key) ? false : (o ? o.selected : true), status: optOuts.has(key) ? "OptedOut" : (o ? o.status : "") });
     }
   }
   rows = [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -298,8 +319,10 @@ function rebuild() {
 }
 function save() {
   store.set("rows", rows);
-  ["tags", "cc", "area", "msg", "via", "block", "pause"].forEach(id => store.set("f_" + id, $(id).value));
-  ["mobileOnly", "askReply"].forEach(id => store.set("f_" + id, $(id).checked));
+  store.set("sentLog", [...sentLog]); store.set("optOuts", [...optOuts]);
+  store.set("blockStartedAt", blockStartedAt); store.set("inBlock", inBlock); store.set("nextAllowedAt", nextAllowedAt);
+  ["tags", "cc", "area", "msg", "via", "block", "gapMin", "qStart", "qEnd"].forEach(id => store.set("f_" + id, $(id).value));
+  ["mobileOnly", "askReply", "quietOn"].forEach(id => store.set("f_" + id, $(id).checked));
 }
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 function render() {
@@ -308,64 +331,139 @@ function render() {
     tb.innerHTML = `<tr><td colspan="6" class="note">${contacts.length ? "No contacts match these tags." : "No contacts loaded yet."}</td></tr>`;
   } else {
     tb.innerHTML = rows.map((r, i) => {
-      const st = r.wa ? (r.status || "Not sent") : "Needs country code";
-      const cls = r.wa ? ("st-" + (r.status || "")) : "st-Needs";
+      const sel = `<select data-st="${i}" aria-label="Status for ${esc(r.name)}">${STATUSES.map(([k, l]) => `<option value="${k}" ${k === (r.status || "") ? "selected" : ""}>${l}</option>`).join("")}</select>`;
+      const st = r.wa ? sel : "Needs country code";
+      const cls = r.wa ? "" : "st-Needs";
       return `<tr><td><input type="checkbox" data-i="${i}" aria-label="Send to ${esc(r.name)}" ${r.selected ? "checked" : ""}></td>
         <td>${esc(r.name)}</td><td>${esc(r.number)}<div class="small">${esc(r.label)}</div></td>
-        <td>${r.wa ? "+" + esc(r.wa) : "—"}</td><td class="${cls}">${esc(st)}</td>
+        <td>${r.wa ? "+" + esc(r.wa) : "—"}</td><td class="${cls}">${st}</td>
         <td>${r.wa ? `<button class="link" data-open="${i}" type="button">Open</button>` : ""}</td></tr>`;
     }).join("");
   }
   const sel = rows.filter(r => r.selected);
-  const opened = sel.filter(r => r.status === "Opened").length;
+  const opened = sel.filter(r => r.status && !["Skipped", "OptedOut"].includes(r.status)).length;
   const waiting = sel.filter(r => !r.status && r.wa).length;
   $("stats").textContent = rows.length ? `${rows.length} numbers matched · ${sel.length} selected · ${opened} opened · ${waiting} waiting` : "";
   $("countLine").textContent = contacts.length ? `${contacts.length} contacts loaded` : "";
   updateProgress();
 }
+function inWindow(d) {
+  if (!$("quietOn").checked) return true;
+  const a = +$("qStart").value, b = +$("qEnd").value, h = (d || new Date()).getHours();
+  if (a === b) return true;
+  return a < b ? (h >= a && h < b) : (h >= a || h < b);
+}
+function fmtWait(ms) { const s = Math.ceil(ms / 1000); return s >= 120 ? Math.ceil(s / 60) + " min" : s + "s"; }
 function updateProgress() {
-  const left = Math.ceil((pauseUntil - Date.now()) / 1000);
+  const left = nextAllowedAt - Date.now();
   const waiting = rows.filter(r => r.selected && !r.status && r.wa).length;
-  if (left > 0) { $("progress").textContent = `Block done. Next block in ${left}s (or press Open next chat to go now).`; }
+  let locked = false;
+  if (waiting && left > 0) { locked = true; $("progress").textContent = `Good-neighbour pause: block of ${blockSize()} done. Next block in ${fmtWait(left)}. ${waiting} waiting.`; }
+  else if (waiting && !inWindow()) { locked = true; $("progress").textContent = `Outside good-neighbour hours. Sending resumes at ${String($("qStart").value).padStart(2, "0")}:00. ${waiting} waiting.`; }
   else if (!rows.length) { $("progress").textContent = contacts.length ? "No matches yet." : "Load a contacts file to begin."; }
   else if (!waiting) { $("progress").textContent = "All selected clients have been opened. Use Reset statuses to send a new message."; }
   else { $("progress").textContent = `${waiting} waiting · ${inBlock} of ${blockSize()} done in this block.`; }
-  $("next").disabled = !waiting; $("skip").disabled = !waiting;
+  $("next").disabled = !waiting || locked; $("skip").disabled = !waiting;
+}
+function tickLoop() {
+  clearInterval(timer);
+  timer = setInterval(() => {
+    const wasLocked = $("next").disabled;
+    updateProgress();
+    if (wasLocked && !$("next").disabled) notify("Next block is ready", "Open Names Miner to send the next " + blockSize() + " messages.");
+  }, 1000);
+}
+function notify(title, body) {
+  try {
+    if (!("Notification" in window)) return;
+    if (Notification.permission === "granted") new Notification(title, { body });
+  } catch (e) {}
 }
 const blockSize = () => Math.max(1, parseInt($("block").value, 10) || 5);
 
 // ---------- sending ----------
-function composed(r) {
+function template() {
   let t = $("msg").value.trim();
   if ($("askReply").checked) t += "\n\nPlease reply YES to confirm you received this.";
-  return t.replace(/\{name\}/g, r.first || "there");
+  return t;
 }
+function composed(r) { return template().replace(/\{name\}/g, r.first || "there"); }
 function openUrl(url) {
   if (window.nm && window.nm.open) window.nm.open(url);
   else window.open(url, "_blank", "noopener");
 }
 function openChat(r) {
   if (!$("msg").value.trim()) { alert("Type your message first."); return false; }
+  if (optOuts.has(r.wa) || r.status === "OptedOut") { alert(r.name + " has opted out and won't be messaged."); return false; }
+  if (sentLog.has(fp(r))) { r.status = "Skipped"; save(); render(); alert(r.name + " already received this exact message. Skipped so nobody gets it twice."); return false; }
   const text = encodeURIComponent(composed(r));
   const url = $("via").value === "app" ? `whatsapp://send?phone=${r.wa}&text=${text}` : `https://wa.me/${r.wa}?text=${text}`;
-  openUrl(url); r.status = "Opened"; save(); render(); return true;
+  openUrl(url); sentLog.add(fp(r)); r.status = "Opened"; save(); render(); return true;
 }
-function nextRow() { return rows.find(r => r.selected && !r.status && r.wa); }
+function nextRow() {
+  for (const r of rows) {
+    if (!r.selected || r.status || !r.wa) continue;
+    if (optOuts.has(r.wa)) { r.status = "OptedOut"; continue; }
+    if (sentLog.has(fp(r))) { r.status = "Skipped"; continue; }
+    return r;
+  }
+  return null;
+}
 function openNext() {
-  const r = nextRow(); if (!r) return;
+  if (Date.now() < nextAllowedAt || !inWindow()) { updateProgress(); return; }
+  const r = nextRow(); save(); render();
+  if (!r) return;
+  try { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); } catch (e) {}
   if (!openChat(r)) return;
-  pauseUntil = 0;
+  if (inBlock === 0) blockStartedAt = Date.now();
   inBlock++;
   if (inBlock >= blockSize()) {
     inBlock = 0;
-    const p = Math.max(0, parseInt($("pause").value, 10) || 0);
-    if (p > 0 && nextRow()) {
-      pauseUntil = Date.now() + p * 1000;
-      clearInterval(pauseTimer);
-      pauseTimer = setInterval(() => { updateProgress(); if (Date.now() >= pauseUntil) { clearInterval(pauseTimer); pauseUntil = 0; updateProgress(); } }, 1000);
-    }
+    const gap = Math.max(0, parseFloat($("gapMin").value) || 0) * 60000;
+    nextAllowedAt = gap > 0 && nextRow() ? blockStartedAt + gap : 0;
   }
-  updateProgress();
+  save(); updateProgress();
+}
+
+// ---------- report ----------
+function buildReport() {
+  const sel = rows.filter(r => r.selected || r.status);
+  const by = (k) => sel.filter(r => r.status === k);
+  const notOnWA = by("NotOnWA"), failed = by("Failed"), opened = by("Opened"), sent = by("Sent"), delivered = by("Delivered");
+  const read = by("Read"), replied = by("Replied"), opted = by("OptedOut"), skipped = by("Skipped");
+  const waiting = sel.filter(r => r.selected && !r.status && r.wa), noCode = sel.filter(r => !r.wa);
+  const reached = sent.length + delivered.length + read.length + replied.length;
+  const seen = read.length + replied.length;
+  const pct = (a, b) => b ? Math.round(a * 100 / b) + "%" : "–";
+  const L = [];
+  L.push("NAMES MINER REPORT — " + new Date().toLocaleString());
+  L.push("");
+  L.push(`Sent: ${reached} · Seen (read or replied): ${seen} (${pct(seen, reached)}) · Replied: ${replied.length} (${pct(replied.length, reached)})`);
+  L.push(`Didn't go through: ${notOnWA.length + failed.length} · Not confirmed sent: ${opened.length} · Not seen yet: ${sent.length + delivered.length} · Opted out: ${opted.length} · Duplicates blocked: ${skipped.length} · Still to send: ${waiting.length}`);
+  L.push("");
+  L.push("WHAT IT MEANS");
+  if (!reached && !opened.length) L.push("• Nothing has been sent yet.");
+  if (sent.length + delivered.length) L.push(`• ${sent.length + delivered.length} client(s) have not opened the message yet (no blue ticks, no reply). Follow up with a call, or send the SMS version from the phone.`);
+  if (notOnWA.length) L.push(`• ${notOnWA.length} number(s) are not on WhatsApp. Use "Export not seen + failed" and send these by SMS from the Names Miner phone app.`);
+  if (failed.length) L.push(`• ${failed.length} message(s) failed for another reason. Set them back to "Not sent" to try again. Duplicates stay blocked for everyone else.`);
+  if (opened.length) L.push(`• ${opened.length} chat(s) were opened but not marked as sent. Check WhatsApp and update their status.`);
+  if (noCode.length) L.push(`• ${noCode.length} number(s) need a country code before they can be messaged.`);
+  if (opted.length) L.push(`• ${opted.length} client(s) opted out and are excluded from all future sends.`);
+  if (skipped.length) L.push(`• ${skipped.length} duplicate(s) blocked: they already had this exact message.`);
+  if (waiting.length) { const nb = Math.ceil(waiting.length / blockSize()); L.push(`• ${waiting.length} client(s) still waiting: ${nb} more block(s) of ${blockSize()}, about ${(nb - 1) * (+$("gapMin").value || 0)} min of gaps.`); }
+  if (reached && !(sent.length + delivered.length + notOnWA.length + failed.length + opened.length)) L.push("• Everyone messaged has seen it. Nothing needs action.");
+  const sec = (title, list) => { if (!list.length) return; L.push(""); L.push(`${title} (${list.length})`); list.forEach(r => L.push(`• ${r.name} (${r.wa ? "+" + r.wa : r.number})`)); };
+  sec("DID NOT GO THROUGH: NOT ON WHATSAPP", notOnWA);
+  sec("DID NOT GO THROUGH: OTHER", failed);
+  sec("NOT OPENED YET: SENT ✓", sent);
+  sec("NOT OPENED YET: DELIVERED ✓✓", delivered);
+  sec("CHAT OPENED, NOT CONFIRMED SENT", opened);
+  sec("READ (BLUE ✓✓)", read);
+  sec("REPLIED", replied);
+  sec("OPTED OUT", opted);
+  sec("NEEDS COUNTRY CODE", noCode);
+  sec("STILL TO SEND", waiting);
+  return L.join("\n");
 }
 
 // ---------- files ----------
@@ -387,27 +485,46 @@ function download(name, text, type) {
 const csvCell = (s) => '"' + String(s).replace(/"/g, '""') + '"';
 
 // ---------- wiring ----------
-["tags", "cc", "area", "msg", "via", "block", "pause"].forEach(id => { const v = store.get("f_" + id, null); if (v !== null) $(id).value = v; });
-["mobileOnly", "askReply"].forEach(id => { const v = store.get("f_" + id, null); if (v !== null) $(id).checked = v; });
+["tags", "cc", "area", "msg", "via", "block", "gapMin", "qStart", "qEnd"].forEach(id => { const v = store.get("f_" + id, null); if (v !== null) $(id).value = v; });
+["mobileOnly", "askReply", "quietOn"].forEach(id => { const v = store.get("f_" + id, null); if (v !== null) $(id).checked = v; });
 ["tags", "cc", "area", "mobileOnly"].forEach(id => $(id).addEventListener("change", rebuild));
-["msg", "via", "block", "pause", "askReply"].forEach(id => $(id).addEventListener("change", save));
+["msg", "via", "block", "gapMin", "qStart", "qEnd", "askReply", "quietOn"].forEach(id => $(id).addEventListener("change", () => { save(); updateProgress(); }));
 $("pick").onclick = () => $("file").click();
 $("file").onchange = (e) => loadFiles([...e.target.files]);
 const drop = $("drop");
 ["dragover", "dragenter"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
 ["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
 drop.addEventListener("drop", e => loadFiles([...e.dataTransfer.files]));
-$("rows").addEventListener("change", e => { const i = e.target.dataset.i; if (i !== undefined) { rows[i].selected = e.target.checked; save(); render(); } });
+$("rows").addEventListener("change", e => {
+  const i = e.target.dataset.i, si = e.target.dataset.st;
+  if (i !== undefined) { rows[i].selected = e.target.checked; save(); render(); }
+  if (si !== undefined) {
+    const r = rows[si], v = e.target.value;
+    if (v === "OptedOut") { optOuts.add(r.wa); r.selected = false; } else optOuts.delete(r.wa);
+    if (v === "" || v === "Failed" || v === "NotOnWA") sentLog.delete(fp(r)); // not received: allow a later retry
+    r.status = v; save(); render(); if (!$("report").hidden) $("report").textContent = buildReport();
+  }
+});
 $("rows").addEventListener("click", e => { const i = e.target.dataset.open; if (i !== undefined) openChat(rows[i]); });
+$("reportBtn").onclick = () => { const h = !$("report").hidden; $("report").hidden = h; $("reportActions").hidden = h; if (!h) $("report").textContent = buildReport(); };
+$("exportReport").onclick = () => download("names-miner-report.txt", buildReport(), "text/plain");
+$("exportNotSeen").onclick = () => {
+  const list = rows.filter(r => ["Sent", "Delivered", "NotOnWA", "Failed", "Opened"].includes(r.status));
+  const lines = ["Name,Number,WhatsApp number,Status"].concat(list.map(r => [r.name, r.number, r.wa ? "+" + r.wa : "", statusLabel(r.status)].map(csvCell).join(",")));
+  download("names-miner-follow-up.csv", "\uFEFF" + lines.join("\r\n"), "text/csv");
+};
 $("next").onclick = openNext;
 $("skip").onclick = () => { const r = nextRow(); if (r) { r.status = "Skipped"; save(); render(); } };
 document.addEventListener("keydown", e => { if ((e.key === "n" || e.key === "N") && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) openNext(); });
 $("all").onclick = () => { rows.forEach(r => r.selected = true); save(); render(); };
 $("none").onclick = () => { rows.forEach(r => r.selected = false); save(); render(); };
-$("reset").onclick = () => { if (confirm("Mark everyone as not sent?")) { rows.forEach(r => r.status = ""); inBlock = 0; pauseUntil = 0; save(); render(); } };
+$("reset").onclick = () => {
+  if (!confirm("Clear statuses to start a new message? Opt-outs stay, and anyone who already got the current message is still protected from getting it twice.")) return;
+  rows.forEach(r => { if (r.status !== "OptedOut") r.status = ""; }); inBlock = 0; nextAllowedAt = 0; save(); render();
+};
 $("exportCsv").onclick = () => {
   if (!rows.length) return;
-  const lines = ["Name,Number,Type,WhatsApp number,Selected,Status"].concat(rows.map(r => [r.name, r.number, r.label, r.wa ? "+" + r.wa : "", r.selected ? "Yes" : "No", r.status || "Not sent"].map(csvCell).join(",")));
+  const lines = ["Name,Number,Type,WhatsApp number,Selected,Status"].concat(rows.map(r => [r.name, r.number, r.label, r.wa ? "+" + r.wa : "", r.selected ? "Yes" : "No", statusLabel(r.status || "")].map(csvCell).join(",")));
   download("names-miner-clients.csv", "﻿" + lines.join("\r\n"), "text/csv");
 };
 $("exportVcf").onclick = () => {
@@ -420,6 +537,7 @@ $("copyNums").onclick = async () => {
   try { await navigator.clipboard.writeText(t); alert("Numbers copied."); } catch (e) { prompt("Copy these numbers:", t.replace(/\n/g, ", ")); }
 };
 render();
+tickLoop();
 </script>
 </body>
 </html>

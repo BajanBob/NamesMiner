@@ -1,7 +1,7 @@
 {
   "name": "names-miner-desktop",
   "productName": "Names Miner",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Find tagged clients in a contacts export and message them via WhatsApp",
   "main": "main.js",
   "author": {

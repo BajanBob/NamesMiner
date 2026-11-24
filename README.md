@@ -44,3 +44,14 @@ Computers can't send SMS from your phone's SIM, so the desktop version works fro
 Downloads (Releases › latest): `NamesMiner-Windows-Setup.exe`, `NamesMiner-Windows-Portable.exe`, `NamesMiner-Windows.zip`, `NamesMiner-Linux.AppImage`, `.deb`, `.tar.gz`, and `NamesMiner-Web.html` (open in any browser).
 
 Windows may show "Windows protected your PC" because the app isn't code-signed: click **More info › Run anyway**.
+
+## Good-neighbour protocol (v1.2)
+- **Small blocks, long gaps:** default 5 messages, then a 20-minute pause, until everyone selected has been sent. Applies on Android (automatic) and desktop (the button locks, and a notification says when the next block is ready).
+- **Good-neighbour hours:** nothing is sent outside 08:00–20:00 local time (adjustable). A run that reaches the evening resumes the next morning.
+- **No duplicates:** every number gets each message once. Rescanning, resetting statuses or restarting can't resend the same text to the same number. A changed message counts as a new message.
+- **Opt-outs:** on Android, a reply of STOP, UNSUBSCRIBE, CANCEL, END, QUIT, OPT OUT or REMOVE excludes that number from all future sends. On desktop, set the client's status to "Opted out".
+- **Report:** shows who didn't get it (failed or not on WhatsApp), who hasn't opened or seen it yet, who replied, opt-outs, blocked duplicates and who's still waiting, with plain-language next steps. You can share or export it.
+
+What can be known: SMS gives *delivered* and *replied*, never *read*. On personal WhatsApp, the app can't see ticks, so you set each status from what WhatsApp shows. Automatic read tracking needs the WhatsApp Business Platform.
+
+On Android, allow background running (the app asks) and set Settings › Apps › Names Miner › Battery to **Unrestricted**, so multi-hour runs aren't paused.
