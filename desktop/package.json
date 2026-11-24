@@ -56,5 +56,10 @@
       "maintainer": "BajanBob <BajanBob@users.noreply.github.com>",
       "artifactName": "NamesMiner-Linux.${ext}"
     }
+  },
+  "homepage": "https://github.com/BajanBob/NamesMiner",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BajanBob/NamesMiner.git"
   }
 }
