@@ -202,6 +202,13 @@ def scan_imap(host, port, user, password, col, folders=None, use_ssl=True):
             pass
 
 
+def fail(message, interactive):
+    print("\n" + message)
+    if interactive:
+        input("\nPress Enter to close.")
+    sys.exit(1)
+
+
 def interactive_args():
     """Ask simple questions when started by double-click (no arguments)."""
     print("Names Miner: email contacts compiler\n")
@@ -250,10 +257,16 @@ def main():
         try:
             scan_imap(a.imap, 143 if a.no_ssl and a.port == 993 else a.port, user, password, col, a.folder, not a.no_ssl)
         except imaplib.IMAP4.error as e:
-            sys.exit(f"IMAP error: {e}\nTip: Gmail and Yahoo need an app password; Microsoft 365 may need IMAP enabled by the admin.")
+            fail(f"IMAP error: {e}\nTip: Gmail and Yahoo need an app password; Microsoft 365 may need IMAP enabled by the admin.", interactive)
+        except OSError as e:
+            fail(f"Couldn't reach {a.imap}: {e}", interactive)
     for p in a.mbox:
+        if not os.path.isfile(p):
+            fail(f"Can't find the mailbox file: {p}", interactive)
         scan_mbox(p, col)
     for d in a.eml_dir:
+        if not os.path.isdir(d):
+            fail(f"Can't find the folder: {d}", interactive)
         scan_eml_dir(d, col)
 
     rows, txt = col.write(a.out)
