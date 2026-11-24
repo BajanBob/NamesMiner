@@ -64,8 +64,28 @@ jobs:
             desktop/dist/*.deb
             desktop/dist/*.tar.gz
 
+  email-tool:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyinstaller
+      - run: pyinstaller --onefile --console --name CoopmedEmailContacts tools/email_contacts.py
+      - shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item dist/CoopmedEmailContacts.exe out/
+          Copy-Item tools/email_contacts.py out/
+          Compress-Archive -Path out/* -DestinationPath EmailContacts-Tool.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: email-tool
+          path: EmailContacts-Tool.zip
+
   release:
-    needs: [android, desktop]
+    needs: [android, desktop, email-tool]
     if: always() && needs.android.result == 'success'
     runs-on: ubuntu-latest
     steps:
@@ -83,4 +103,4 @@ jobs:
           gh release delete latest -y --cleanup-tag || true
           gh release create latest artifacts/* \
             --title "Names Miner – latest builds" \
-            --notes "Android: NamesMiner.apk (or the APK zip). Windows: NamesMiner-Windows-Setup.exe (installer), NamesMiner-Windows-Portable.exe (no install) or NamesMiner-Windows.zip. Linux: NamesMiner-Linux.AppImage, .deb or .tar.gz. Any device: NamesMiner-Web.html opens in a browser. Built from ${{ github.sha }}."
+            --notes "Android: NamesMiner.apk (or the APK zip). Windows: NamesMiner-Windows-Setup.exe (installer), NamesMiner-Windows-Portable.exe (no install) or NamesMiner-Windows.zip. Linux: NamesMiner-Linux.AppImage, .deb or .tar.gz. Any device: NamesMiner-Web.html opens in a browser. Email contacts tool: EmailContacts-Tool.zip (Windows .exe + Python script). Built from ${{ github.sha }}."

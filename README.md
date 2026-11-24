@@ -69,3 +69,13 @@ Drop one or more files into Names Miner. Numbers found in several sources are me
 | Thunderbird | Address Book › Tools › Export › vCard or CSV |
 
 On the **phone app**, contacts from any account synced to the phone (Google, Samsung, Outlook/Exchange) are already included. To add Yahoo or computer contacts to the phone, open the exported .vcf on the phone and import it into Contacts.
+
+## Email contacts tool (tools/email_contacts.py)
+Lists every email address that sent mail to, or received mail from, a mailbox (default admin@coopmed.com). Each address appears once, case-insensitive, and copies of the same email in several folders are counted once. Only headers are read.
+
+- **Windows:** download `EmailContacts-Tool.zip` from Releases, unzip, and double-click `CoopmedEmailContacts.exe`. It asks a few questions. Windows may show "protected your PC": choose More info › Run anyway.
+- **Any OS with Python 3.8+:** `python email_contacts.py --imap imap.gmail.com --user admin@coopmed.com`, or `--mbox file.mbox`, or `--eml-dir folder`.
+
+The output is `coopmed-email-contacts.csv` (email, name, emails sent to them, emails received from them, first and last seen) plus a plain `.txt` list. Options: `--skip-automated` leaves out no-reply and bounce addresses; `--exclude-domain coopmed.com` gives external contacts only.
+
+Sign-in notes: Gmail and Yahoo need an **app password** (account security settings, with 2-step verification on). Microsoft 365 needs IMAP enabled for the mailbox; otherwise export from Outlook (or Google Takeout for Gmail) and use `--mbox` or `--eml-dir`.
