@@ -5,6 +5,9 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.PowerManager
+import android.provider.Settings
 import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
@@ -35,6 +38,9 @@ class MainActivity : Activity() {
     private lateinit var modeBroadcast: RadioButton
     private lateinit var blockSize: EditText
     private lateinit var delaySec: EditText
+    private lateinit var quietOn: CheckBox
+    private lateinit var quietStart: EditText
+    private lateinit var quietEnd: EditText
     private lateinit var progress: TextView
     private lateinit var startBtn: Button
     private lateinit var stopBtn: Button
@@ -134,7 +140,17 @@ class MainActivity : Activity() {
         root.addView(group)
         blockSize = numberField()
         delaySec = numberField()
-        root.addView(hrow(labeled("Messages per block", blockSize), labeled("Seconds between blocks", delaySec)))
+        root.addView(hrow(labeled("Messages per block", blockSize), labeled("Minutes between blocks", delaySec)))
+        quietOn = check("Good-neighbour hours: only send between these times")
+        root.addView(quietOn)
+        quietStart = numberField()
+        quietEnd = numberField()
+        root.addView(hrow(labeled("From (hour, 0–23)", quietStart), labeled("Until (hour, 0–23)", quietEnd)))
+        root.addView(TextView(this).apply {
+            textSize = 12f
+            text = "Good-neighbour protocol: small blocks, long gaps, no sends at night, never the same message twice " +
+                "to the same number, and anyone who replies STOP is never messaged again."
+        })
         group.setOnCheckedChangeListener { _, _ -> updateModeFields() }
 
         startBtn = button("Start sending") { confirmAndSend() }
@@ -142,12 +158,13 @@ class MainActivity : Activity() {
             startService(Intent(this, SendService::class.java).setAction(SendService.ACTION_STOP))
         }
         root.addView(hrow(startBtn, stopBtn, button("Reset statuses") { confirmReset() }))
+        root.addView(button("Report: who got it, who didn't") { showReport() })
         progress = TextView(this).apply { setPadding(0, dp(8), 0, 0) }
         root.addView(progress)
         root.addView(TextView(this).apply {
             textSize = 12f
             setPadding(0, dp(16), 0, 0)
-            text = "Sent = left your phone. Delivered = the network confirmed it reached the client's phone. " +
+            text = "Sent = left your phone. Duplicates are blocked automatically.  Delivered = the network confirmed it reached the client's phone. " +
                 "Confirmed = the client replied. Plain SMS cannot report when a message is opened, so a reply " +
                 "is the confirmation of receipt. Messages go from your own SIM at your carrier's normal rates " +
                 "and also appear in your Messages app."
@@ -224,6 +241,10 @@ class MainActivity : Activity() {
                 append("Delivered ${c[Status.DELIVERED] ?: 0} · ")
                 append("Confirmed ${c[Status.CONFIRMED] ?: 0} · ")
                 append("Failed ${c[Status.FAILED] ?: 0}")
+                val oo = recs.count { it.status == Status.OPTED_OUT }
+                val sk = c[Status.SKIPPED] ?: 0
+                if (oo > 0) append(" · Opted out $oo")
+                if (sk > 0) append(" · Duplicates blocked $sk")
             }
             if (Store.progressLine.isNotBlank()) append("\n").append(Store.progressLine)
         }
@@ -281,6 +302,8 @@ class MainActivity : Activity() {
         Status.DELIVERED -> 0xFF2E7D32.toInt()
         Status.CONFIRMED -> 0xFF00796B.toInt()
         Status.FAILED -> 0xFFC62828.toInt()
+        Status.SKIPPED -> 0xFF8D6E00.toInt()
+        Status.OPTED_OUT -> 0xFF424242.toInt()
     }
 
     private fun selectAll(value: Boolean) {
@@ -338,15 +361,22 @@ class MainActivity : Activity() {
         }
         val broadcast = modeBroadcast.isChecked
         val block = (blockSize.text.toString().toIntOrNull() ?: 5).coerceIn(1, 100)
-        val delay = (delaySec.text.toString().toIntOrNull() ?: 60).coerceIn(5, 3600)
+        val delay = (delaySec.text.toString().toIntOrNull() ?: 20).coerceIn(1, 240)
+        val qs = (quietStart.text.toString().toIntOrNull() ?: 8).coerceIn(0, 23)
+        val qe = (quietEnd.text.toString().toIntOrNull() ?: 20).coerceIn(0, 23)
+        quietStart.setText(qs.toString())
+        quietEnd.setText(qe.toString())
         blockSize.setText(block.toString())
         delaySec.setText(delay.toString())
 
         val full = composed(text)
+        val dupes = targets.count { Store.fingerprint(it.id, full) in Store.sentLog }
         val sample = full.replace("{name}", targets.first().firstName.ifBlank { "there" })
         val blocks = (targets.size + block - 1) / block
-        val secs = if (broadcast) targets.size * 1.5 else (blocks - 1) * delay + targets.size * 1.5
-        val how = if (broadcast) "One-time broadcast to all ${targets.size}" else "$blocks blocks of up to $block, $delay s apart"
+        val secs = if (broadcast) targets.size * 1.5 else (blocks - 1) * delay * 60.0 + targets.size * 1.5
+        val how = (if (broadcast) "One-time broadcast to all ${targets.size}" else "$blocks blocks of up to $block, $delay min apart") +
+            (if (quietOn.isChecked) ", only between %02d:00 and %02d:00".format(qs, qe) else "") +
+            (if (dupes > 0) ". $dupes already had this exact message and will be skipped" else "")
 
         AlertDialog.Builder(this)
             .setTitle("Send to ${targets.size} clients?")
@@ -356,14 +386,61 @@ class MainActivity : Activity() {
                     "a large number of messages, choose Always allow."
             )
             .setPositiveButton("Send") { _, _ ->
-                withPermissions(sendPermissions()) { launch(full, broadcast, block, delay) }
+                withPermissions(sendPermissions()) {
+                    ensureBackgroundAllowed {
+                        launch(full, broadcast, block, delay, if (quietOn.isChecked) qs else -1, if (quietOn.isChecked) qe else -1)
+                    }
+                }
             }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
-    private fun formatDuration(secs: Double): String =
-        if (secs < 90) "${secs.roundToInt()} seconds" else "${(secs / 60).roundToInt()} minutes"
+    private fun formatDuration(secs: Double): String = when {
+        secs < 90 -> "${secs.roundToInt()} seconds"
+        secs < 5400 -> "${(secs / 60).roundToInt()} minutes"
+        else -> "%.1f hours".format(secs / 3600)
+    }
+
+    /** Long runs (hours) need Samsung/Android to leave the app running in the background. */
+    private fun ensureBackgroundAllowed(then: () -> Unit) {
+        val pm = getSystemService(PowerManager::class.java)
+        if (pm.isIgnoringBatteryOptimizations(packageName)) { then(); return }
+        AlertDialog.Builder(this)
+            .setTitle("Keep sending in the background?")
+            .setMessage("Sending in blocks can take hours. Allow Names Miner to run in the background so the phone doesn't pause it. " +
+                "Then also check Settings › Apps › Names Miner › Battery is set to Unrestricted.")
+            .setPositiveButton("Allow") { _, _ ->
+                try {
+                    startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
+                } catch (e: Exception) { }
+                then()
+            }
+            .setNegativeButton("Not now") { _, _ -> then() }
+            .show()
+    }
+
+    private fun showReport() {
+        val reportText = Report.build(Store.recipients)
+        val tv = TextView(this).apply {
+            text = reportText
+            textSize = 14f
+            setTextIsSelectable(true)
+            setPadding(dp(20), dp(12), dp(20), dp(12))
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Send report")
+            .setView(ScrollView(this).apply { addView(tv) })
+            .setPositiveButton("Share") { _, _ ->
+                val send = Intent(Intent.ACTION_SEND)
+                    .setType("text/plain")
+                    .putExtra(Intent.EXTRA_SUBJECT, "Names Miner report")
+                    .putExtra(Intent.EXTRA_TEXT, reportText)
+                startActivity(Intent.createChooser(send, "Share report"))
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
 
     private fun sendPermissions(): Array<String> {
         val list = mutableListOf(Manifest.permission.SEND_SMS, Manifest.permission.RECEIVE_SMS)
@@ -371,7 +448,7 @@ class MainActivity : Activity() {
         return list.toTypedArray()
     }
 
-    private fun launch(text: String, broadcast: Boolean, block: Int, delay: Int) {
+    private fun launch(text: String, broadcast: Boolean, block: Int, delay: Int, qStart: Int, qEnd: Int) {
         saveSettings()
         Store.progressLine = "Starting…"
         val i = Intent(this, SendService::class.java)
@@ -380,6 +457,8 @@ class MainActivity : Activity() {
             .putExtra(SendService.EXTRA_BROADCAST, broadcast)
             .putExtra(SendService.EXTRA_BLOCK, block)
             .putExtra(SendService.EXTRA_DELAY, delay)
+            .putExtra(SendService.EXTRA_QUIET_START, qStart)
+            .putExtra(SendService.EXTRA_QUIET_END, qEnd)
         startForegroundService(i)
         refresh()
     }
@@ -452,7 +531,10 @@ class MainActivity : Activity() {
         askReply.isChecked = p.getBoolean("askReply", true)
         if (p.getBoolean("broadcast", false)) modeBroadcast.isChecked = true else modeBlocks.isChecked = true
         blockSize.setText(p.getInt("block", 5).toString())
-        delaySec.setText(p.getInt("delay", 60).toString())
+        delaySec.setText(p.getInt("delayMin", 20).toString())
+        quietOn.isChecked = p.getBoolean("quietOn", true)
+        quietStart.setText(p.getInt("quietStart", 8).toString())
+        quietEnd.setText(p.getInt("quietEnd", 20).toString())
         updateModeFields()
     }
 
@@ -464,7 +546,10 @@ class MainActivity : Activity() {
             .putBoolean("askReply", askReply.isChecked)
             .putBoolean("broadcast", modeBroadcast.isChecked)
             .putInt("block", blockSize.text.toString().toIntOrNull() ?: 5)
-            .putInt("delay", delaySec.text.toString().toIntOrNull() ?: 60)
+            .putInt("delayMin", delaySec.text.toString().toIntOrNull() ?: 20)
+            .putBoolean("quietOn", quietOn.isChecked)
+            .putInt("quietStart", quietStart.text.toString().toIntOrNull() ?: 8)
+            .putInt("quietEnd", quietEnd.text.toString().toIntOrNull() ?: 20)
             .apply()
     }
 }

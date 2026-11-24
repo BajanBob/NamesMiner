@@ -13,7 +13,9 @@ enum class Status(val label: String) {
     SENT("Sent"),
     DELIVERED("Delivered"),
     CONFIRMED("Confirmed"),
-    FAILED("Failed")
+    FAILED("Failed"),
+    SKIPPED("Skipped: already had this message"),
+    OPTED_OUT("Opted out")
 }
 
 class Recipient(
@@ -28,10 +30,13 @@ class Recipient(
     var partsSent: Int = 0,
     var partsDelivered: Int = 0,
     var note: String = "",
-    var updatedAt: Long = 0L
+    var updatedAt: Long = 0L,
+    var sentAt: Long = 0L
 ) {
     fun resetStatus() {
+        if (status == Status.OPTED_OUT) return
         status = Status.NEW
+        sentAt = 0L
         partsTotal = 0
         partsSent = 0
         partsDelivered = 0
@@ -43,7 +48,7 @@ class Recipient(
         .put("number", number).put("label", label).put("selected", selected)
         .put("status", status.name).put("partsTotal", partsTotal)
         .put("partsSent", partsSent).put("partsDelivered", partsDelivered)
-        .put("note", note).put("updatedAt", updatedAt)
+        .put("note", note).put("updatedAt", updatedAt).put("sentAt", sentAt)
 
     companion object {
         fun fromJson(o: JSONObject) = Recipient(
@@ -58,7 +63,8 @@ class Recipient(
             partsSent = o.optInt("partsSent"),
             partsDelivered = o.optInt("partsDelivered"),
             note = o.optString("note"),
-            updatedAt = o.optLong("updatedAt")
+            updatedAt = o.optLong("updatedAt"),
+            sentAt = o.optLong("sentAt")
         )
     }
 }
@@ -70,6 +76,14 @@ object Store {
     @Volatile
     var running = false
     var progressLine = ""
+
+    /** "number|message fingerprint" for every message already sent: the no-duplicates guard. */
+    val sentLog = mutableSetOf<String>()
+    /** Numbers that replied STOP (or similar). They are never messaged again. */
+    val optOuts = mutableSetOf<String>()
+
+    fun fingerprint(id: String, template: String): String =
+        id + "|" + template.trim().replace(Regex("\\s+"), " ").hashCode()
 
     private var loaded = false
     private val main = Handler(Looper.getMainLooper())
@@ -85,6 +99,8 @@ object Store {
     fun ensureLoaded(ctx: Context) {
         if (loaded) return
         loaded = true
+        readSet(ctx, "sentLog", sentLog)
+        readSet(ctx, "optOuts", optOuts)
         val raw = prefs(ctx).getString("recipients", null) ?: return
         try {
             val arr = JSONArray(raw)
@@ -105,7 +121,19 @@ object Store {
     fun save(ctx: Context) {
         val arr = JSONArray()
         recipients.forEach { arr.put(it.toJson()) }
-        prefs(ctx).edit().putString("recipients", arr.toString()).apply()
+        prefs(ctx).edit()
+            .putString("recipients", arr.toString())
+            .putString("sentLog", JSONArray(sentLog.toList()).toString())
+            .putString("optOuts", JSONArray(optOuts.toList()).toString())
+            .apply()
+    }
+
+    private fun readSet(ctx: Context, key: String, into: MutableSet<String>) {
+        val raw = prefs(ctx).getString(key, null) ?: return
+        try {
+            val arr = JSONArray(raw)
+            for (i in 0 until arr.length()) into.add(arr.getString(i))
+        } catch (e: Exception) { }
     }
 
     fun find(id: String): Recipient? = recipients.firstOrNull { it.id == id }
@@ -123,6 +151,11 @@ object Store {
                 f.partsDelivered = o.partsDelivered
                 f.note = o.note
                 f.updatedAt = o.updatedAt
+                f.sentAt = o.sentAt
+            }
+            if (f.id in optOuts) {
+                f.status = Status.OPTED_OUT
+                f.selected = false
             }
             recipients.add(f)
         }

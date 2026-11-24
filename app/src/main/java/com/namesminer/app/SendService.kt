@@ -15,6 +15,7 @@ import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
 import android.telephony.SmsManager
+import java.util.Calendar
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -29,7 +30,9 @@ class SendService : Service() {
         const val EXTRA_TEXT = "text"
         const val EXTRA_BROADCAST = "broadcast"
         const val EXTRA_BLOCK = "block"
-        const val EXTRA_DELAY = "delay"
+        const val EXTRA_DELAY = "delay"          // minutes between blocks
+        const val EXTRA_QUIET_START = "quietStart" // hour sending may start, -1 = any time
+        const val EXTRA_QUIET_END = "quietEnd"     // hour sending must stop
 
         private const val CHANNEL = "sending"
         private const val NOTIF_ID = 7
@@ -50,6 +53,8 @@ class SendService : Service() {
     private var totalCount = 0
     private var countdownEnd = 0L
     private var wakeLock: PowerManager.WakeLock? = null
+    private var quietStart = -1
+    private var quietEnd = -1
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -67,15 +72,22 @@ class SendService : Service() {
         text = intent.getStringExtra(EXTRA_TEXT) ?: ""
         broadcast = intent.getBooleanExtra(EXTRA_BROADCAST, false)
         block = intent.getIntExtra(EXTRA_BLOCK, 5).coerceAtLeast(1)
-        delayMs = intent.getIntExtra(EXTRA_DELAY, 60).coerceAtLeast(1) * 1000L
+        delayMs = intent.getIntExtra(EXTRA_DELAY, 20).coerceAtLeast(1) * 60_000L
+        quietStart = intent.getIntExtra(EXTRA_QUIET_START, -1)
+        quietEnd = intent.getIntExtra(EXTRA_QUIET_END, -1)
 
         queue.clear()
         for (r in Store.recipients) {
-            if (r.selected && (r.status == Status.NEW || r.status == Status.FAILED)) {
-                r.resetStatus()
-                r.status = Status.QUEUED
-                queue.addLast(r.id)
+            if (!r.selected || r.id in Store.optOuts) continue
+            if (r.status != Status.NEW && r.status != Status.FAILED) continue
+            if (Store.fingerprint(r.id, text) in Store.sentLog) {
+                r.status = Status.SKIPPED
+                r.note = "Already received this exact message"
+                continue
             }
+            r.resetStatus()
+            r.status = Status.QUEUED
+            queue.addLast(r.id)
         }
         if (queue.isEmpty() || text.isBlank()) { stopIfIdle(); return START_NOT_STICKY }
 
@@ -89,14 +101,39 @@ class SendService : Service() {
 
         val pm = getSystemService(PowerManager::class.java)
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "NamesMiner:send").apply {
-            acquire(6 * 60 * 60 * 1000L)
+            acquire(24 * 60 * 60 * 1000L)
         }
         handler.post { step() }
         return START_NOT_STICKY
     }
 
+    private fun inQuietWindow(): Boolean {
+        if (quietStart < 0 || quietEnd < 0 || quietStart == quietEnd) return true
+        val h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+        return if (quietStart < quietEnd) h in quietStart until quietEnd else (h >= quietStart || h < quietEnd)
+    }
+
+    private fun msUntilWindowOpens(): Long {
+        val now = Calendar.getInstance()
+        val next = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, quietStart)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            if (!after(now)) add(Calendar.DAY_OF_MONTH, 1)
+        }
+        return next.timeInMillis - now.timeInMillis
+    }
+
     private fun step() {
         if (!Store.running) return
+        if (queue.isNotEmpty() && !inQuietWindow()) {
+            val wait = msUntilWindowOpens()
+            countdownEnd = SystemClock.elapsedRealtime() + wait
+            progress("Good-neighbour hours: waiting until %02d:00 to continue ($sentCount of $totalCount sent)".format(quietStart))
+            handler.postDelayed({ step() }, wait.coerceAtMost(15 * 60_000L))
+            return
+        }
         val id = queue.removeFirstOrNull()
         if (id == null) {
             finish("Done: $sentCount sent. Delivery reports and replies will keep updating.")
@@ -133,8 +170,10 @@ class SendService : Service() {
             step()
             return
         }
-        progress("Block $blockNo of $totalBlocks sent ($sentCount of $totalCount). Next block in ${(left + 999) / 1000}s")
-        handler.postDelayed({ tick() }, 1000)
+        val secs = (left + 999) / 1000
+        val wait = if (secs >= 120) "${(secs + 59) / 60} min" else "${secs}s"
+        progress("Block $blockNo of $totalBlocks sent ($sentCount of $totalCount). Next block in $wait")
+        handler.postDelayed({ tick() }, if (left > 120_000) 15_000L else 1000L)
     }
 
     private fun sendTo(r: Recipient) {
@@ -162,6 +201,8 @@ class SendService : Service() {
                 sms.sendMultipartTextMessage(r.number, null, parts, sent, delivered)
             }
             r.updatedAt = System.currentTimeMillis()
+            r.sentAt = r.updatedAt
+            Store.sentLog.add(Store.fingerprint(r.id, text))
         } catch (e: Exception) {
             r.status = Status.FAILED
             r.note = e.message ?: "Could not send"
