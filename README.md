@@ -55,3 +55,17 @@ Windows may show "Windows protected your PC" because the app isn't code-signed: 
 What can be known: SMS gives *delivered* and *replied*, never *read*. On personal WhatsApp, the app can't see ticks, so you set each status from what WhatsApp shows. Automatic read tracking needs the WhatsApp Business Platform.
 
 On Android, allow background running (the app asks) and set Settings › Apps › Names Miner › Battery to **Unrestricted**, so multi-hour runs aren't paused.
+
+## Importing contacts from other sources (desktop/web version)
+Drop one or more files into Names Miner. Numbers found in several sources are merged, so each client appears once.
+| Source | How to export |
+|---|---|
+| Google | contacts.google.com › Export › **vCard** (or Google CSV) |
+| Yahoo | Yahoo Mail › Contacts › ⋯ › **Export** (CSV or vCard) |
+| Outlook / Microsoft 365 | outlook.com › People › Manage contacts › **Export contacts** (CSV) |
+| Windows Outlook desktop | File › Open & Export › Import/Export › Export to a file › CSV |
+| iPhone / Mac | iCloud.com Contacts or Mac Contacts › select all › **Export vCard** |
+| Samsung / Android phone | Contacts › ☰ › Manage contacts › Import or export › **Export** (.vcf) |
+| Thunderbird | Address Book › Tools › Export › vCard or CSV |
+
+On the **phone app**, contacts from any account synced to the phone (Google, Samsung, Outlook/Exchange) are already included. To add Yahoo or computer contacts to the phone, open the exported .vcf on the phone and import it into Contacts.

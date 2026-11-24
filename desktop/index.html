@@ -50,7 +50,7 @@
   <section class="panel side" aria-labelledby="h1s">
     <h2 id="h1s">1 · Load contacts</h2>
     <div class="drop" id="drop">
-      <p class="note" style="margin-bottom:8px">Drop a contacts file here (.vcf, or a .csv from Google or Outlook)</p>
+      <p class="note" style="margin-bottom:8px">Drop contacts files here: .vcf (vCard) or .csv from Google, Yahoo, Outlook, iPhone/Mac or Thunderbird. You can add several at once.</p>
       <button id="pick" type="button">Choose file…</button>
       <input id="file" type="file" accept=".vcf,.vcard,.csv,text/vcard,text/csv" multiple hidden>
     </div>
@@ -279,7 +279,16 @@ function parseCSV(text) {
       phoneCols.push({ i, label: labelCol >= 0 ? labelCol : -1, name: col });
     }
   });
-  const gi = h.findIndex(x => x === "first name" || x === "given name");
+  // Yahoo-style exports use bare "First", "Last", "Mobile", "Home", "Work" headers.
+  const yahooStyle = h.includes("first") || h.includes("last");
+  if (yahooStyle) {
+    h.forEach((col, i) => {
+      if (["first", "middle", "last"].includes(col) && !nameCols.includes(i)) nameCols.push(i);
+      if (["home", "work", "other", "pager", "primary", "yahoo phone"].includes(col) && !phoneCols.some(pc => pc.i === i))
+        phoneCols.push({ i, label: -1, name: col });
+    });
+  }
+  const gi = h.findIndex(x => x === "first name" || x === "given name" || x === "first");
   const di = h.findIndex(x => x === "name" || x === "display name" || x === "full name");
   return data.slice(1).map(r => {
     const names = nameCols.map(i => (r[i] || "").trim()).filter(Boolean);
