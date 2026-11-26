@@ -79,3 +79,11 @@ Lists every email address that sent mail to, or received mail from, a mailbox (d
 The output is `coopmed-email-contacts.csv` (email, name, emails sent to them, emails received from them, first and last seen) plus a plain `.txt` list. Options: `--skip-automated` leaves out no-reply and bounce addresses; `--exclude-domain coopmed.com` gives external contacts only.
 
 Sign-in notes: Gmail and Yahoo need an **app password** (account security settings, with 2-step verification on). Microsoft 365 needs IMAP enabled for the mailbox; otherwise export from Outlook (or Google Takeout for Gmail) and use `--mbox` or `--eml-dir`.
+
+## v1.3: choose anyone, by name or number code; texts or emails
+- **Who:** *Clients with tags* (CL, Coopmed…) or *All contacts*. With all contacts nothing is pre-ticked: search by name and tick who to message.
+- **3-digit codes:** up to three, e.g. 823, 826, 829. For +1 numbers the code is the 3 digits after the area code (+1 246 **823** 4567); elsewhere it's the start of the national number (+234 **803** …). Only contacts with a matching number are included.
+- **Texts or emails:** choose *Cell numbers* (SMS on the phone, WhatsApp on the computer) or *Emails*. Email mode shows a ready-to-edit template (subject and message, {name} = first name) and lets you add attachments.
+- **Harvested list:** in email mode, *Load harvested email list* reads the CSV/TXT from the email contacts tool. Those addresses are ticked, everyone else is unticked, and harvested addresses missing from contacts are added.
+- **Phone, email:** each block opens your email app with up to 5 clients in BCC (with attachments). **Computer, email:** each block becomes one draft email per client (.eml, attachment included, personal greeting). Open each in Outlook and press Send (in Thunderbird: Edit as New Message). Or open the block in your email app as BCC, without attachments.
+- **Good neighbour, per person:** at most **2 messages in any 24 hours, at least 6 hours apart**, on every channel. Anyone held back shows as *Held* with the time they can next be messaged, and is picked up automatically next time.

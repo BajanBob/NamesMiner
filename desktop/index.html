@@ -56,9 +56,27 @@
     </div>
     <p class="note">Phone: Contacts › ☰ › Manage contacts › Import or export › Export, then copy the .vcf to this computer. Or export from contacts.google.com.</p>
 
-    <h2>2 · Find clients</h2>
+    <h2>2 · Choose who</h2>
+    <div class="row">
+      <label class="inline"><input type="radio" name="who" id="whoTagged" checked> Clients with tags</label>
+      <label class="inline"><input type="radio" name="who" id="whoAll"> All contacts</label>
+    </div>
     <label>Tags in first name or surname (any case, comma separated)
       <input type="text" id="tags" value="CL, Coopmed"></label>
+    <label>Only numbers whose local number starts with (up to 3 codes, blank = all). For +1 246 823 4567 the code is 823.</label>
+    <div class="row">
+      <input type="text" id="pre1" maxlength="3" inputmode="numeric" placeholder="e.g. 823" aria-label="Code 1">
+      <input type="text" id="pre2" maxlength="3" inputmode="numeric" aria-label="Code 2">
+      <input type="text" id="pre3" maxlength="3" inputmode="numeric" aria-label="Code 3">
+    </div>
+    <div class="row">
+      <label class="inline"><input type="radio" name="ch" id="chWa" checked> Cell numbers (WhatsApp)</label>
+      <label class="inline"><input type="radio" name="ch" id="chEmail"> Emails</label>
+    </div>
+    <div id="harvestRow" hidden>
+      <button type="button" id="harvestBtn">Load harvested email list (.csv / .txt)</button>
+      <input id="harvestFile" type="file" accept=".csv,.txt,text/csv,text/plain" hidden>
+    </div>
     <label class="inline"><input type="checkbox" id="mobileOnly"> Mobile-labelled numbers only</label>
     <div class="row">
       <label>Country calling code for local numbers
@@ -67,15 +85,32 @@
         <input type="text" id="area" placeholder="e.g. 246"></label>
     </div>
 
+    <div id="waBox">
     <h2>3 · Message</h2>
     <label>Message ({name} = first name)
       <textarea id="msg" placeholder="Good morning {name}, …"></textarea></label>
     <label class="inline"><input type="checkbox" id="askReply" checked> Add “Please reply YES to confirm you received this.”</label>
+    </div>
 
-    <h2>4 · Send via WhatsApp</h2>
+    <div id="emailBox" hidden>
+    <h2>3 · Email template</h2>
+    <label>Subject<input type="text" id="subj"></label>
+    <label>Message ({name} = first name)<textarea id="ebody" style="min-height:180px"></textarea></label>
     <div class="row">
+      <button type="button" id="attachBtn">Add attachments</button>
+      <button type="button" id="clearAttach">Clear attachments</button>
+      <button type="button" id="resetTpl">Reset template</button>
+    </div>
+    <input id="attachFile" type="file" multiple hidden>
+    <p class="note" id="attachList">No attachments.</p>
+    </div>
+
+    <h2 id="sendTitle">4 · Send via WhatsApp</h2>
+    <div class="row" id="viaRow">
       <label>Open in
         <select id="via"><option value="app">WhatsApp Desktop app</option><option value="web">WhatsApp Web (browser)</option></select></label>
+    </div>
+    <div class="row">
       <label>Block size
         <input type="number" id="block" min="1" max="100" value="5"></label>
       <label>Minutes between blocks
@@ -86,20 +121,26 @@
       <label>From (hour 0–23)<input type="number" id="qStart" min="0" max="23" value="8"></label>
       <label>Until (hour 0–23)<input type="number" id="qEnd" min="0" max="23" value="20"></label>
     </div>
-    <div class="row">
+    <div class="row" id="waButtons">
       <button class="primary" id="next" type="button">Open next chat</button>
       <button id="skip" type="button">Skip</button>
     </div>
+    <div class="row" id="emailButtons" hidden>
+      <button class="primary" id="emailDrafts" type="button">Create next block as email drafts</button>
+      <button id="emailMailto" type="button">Open block in email app (no attachments)</button>
+    </div>
+    <p class="note">Always on: each person gets at most 2 messages in any 24 hours, at least 6 hours apart. Anyone held back shows as Held, with the time they can next be messaged.</p>
     <div class="progress" id="progress">Load a contacts file to begin.</div>
     <p class="note">Each chat opens with your message typed. Press Send in WhatsApp, come back, then press <b>Open next chat</b> (or the N key). After each block the button locks for the set minutes and a notification tells you when the next block is ready. The same message is never opened twice for the same number, and anyone marked Opted out is never messaged again.</p>
     <p class="note">WhatsApp doesn't tell other apps about ticks. After sending, set each client's status from what WhatsApp shows (✓ sent, ✓✓ delivered, blue ✓✓ read, a reply, or "not on WhatsApp"). The report uses those marks.</p>
   </section>
 
   <section class="panel list" aria-labelledby="h2s">
+    <input type="text" id="search" placeholder="Search names, numbers or emails…" aria-label="Search">
     <div class="row" style="align-items:center">
-      <h2 id="h2s" style="flex:2 1 200px">Matched clients</h2>
-      <button type="button" id="all">Select all</button>
-      <button type="button" id="none">Select none</button>
+      <h2 id="h2s" style="flex:2 1 200px">Contacts</h2>
+      <button type="button" id="all">Select shown</button>
+      <button type="button" id="none">Clear shown</button>
       <button type="button" id="reset">Reset statuses</button>
     </div>
     <div class="row">
@@ -116,7 +157,7 @@
     <p class="stats" id="stats"></p>
     <div class="scroll">
       <table>
-        <thead><tr><th scope="col">Send</th><th scope="col">Name</th><th scope="col">Number</th><th scope="col">WhatsApp no.</th><th scope="col">Status</th><th scope="col"><span class="small">Chat</span></th></tr></thead>
+        <thead><tr><th scope="col">Send</th><th scope="col">Name</th><th scope="col">Number / email</th><th scope="col">Send to</th><th scope="col">Status</th><th scope="col"><span class="small">Chat</span></th></tr></thead>
         <tbody id="rows"><tr><td colspan="6" class="note">No contacts loaded yet.</td></tr></tbody>
       </table>
     </div>
@@ -134,10 +175,41 @@ const $ = (id) => document.getElementById(id);
 let contacts = store.get("contacts", []);
 let rows = store.get("rows", []);
 let sentLog = new Set(store.get("sentLog", []));
+let history = store.get("history", {});        // key -> [send times], for the 2-per-24h / 6h rule
+let harvested = store.get("harvested", []);    // [[email, name]] from the harvesting tool
+let attachments = [];                          // [{name, type, base64}] (kept in memory only)
+const DAY = 86400000, GAP = 6 * 3600000, MAX_PER_DAY = 2;
+const DEFAULT_SUBJECT = "An update for you";
+const DEFAULT_BODY = "Dear {name},\n\n[Write your message here.]\n\nIf you have any questions, simply reply to this email.\n\nKind regards,\n[Your name]\n[Company] · [Phone]";
+function nextAllowed(key, now) {
+  const recent = (history[key] || []).filter(t => now - t < DAY).sort((a, b) => a - b);
+  if (!recent.length) return 0;
+  let t = recent[recent.length - 1] + GAP;
+  if (recent.length >= MAX_PER_DAY) t = Math.max(t, recent[recent.length - MAX_PER_DAY] + DAY);
+  return t;
+}
+function recordSend(key, now) { const l = (history[key] = (history[key] || []).filter(t => now - t < 2 * DAY)); l.push(now); }
+const fmtTime = (t) => new Date(t).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
+const TWO = new Set("20 27 30 31 32 33 34 36 39 40 41 43 44 45 46 47 48 49 51 52 53 54 55 56 57 58 60 61 62 63 64 65 66 81 82 84 86 90 91 92 93 94 95 98".split(" "));
+function splitCC(d) {
+  if (!d) return ["", ""];
+  if (d[0] === "1" || d[0] === "7") return [d[0], d.slice(1)];
+  if (TWO.has(d.slice(0, 2))) return [d.slice(0, 2), d.slice(2)];
+  return [d.slice(0, 3), d.slice(3)];
+}
+function localPrefix(wa, raw) {
+  if (wa) { const [cc, nat] = splitCC(wa); return cc === "1" ? nat.slice(3, 6) : nat.slice(0, 3); }
+  const d = (raw || "").replace(/\D/g, "");
+  if (d.length === 7) return d.slice(0, 3);
+  if (d.length === 10 && d[0] !== "0") return d.slice(3, 6);
+  return d.replace(/^0+/, "").slice(0, 3);
+}
+const isEmailMode = () => $("chEmail").checked;
+const prefixesNow = () => ["pre1", "pre2", "pre3"].map(id => $(id).value.replace(/\D/g, "")).filter(Boolean);
 let optOuts = new Set(store.get("optOuts", []));
 let blockStartedAt = store.get("blockStartedAt", 0), inBlock = store.get("inBlock", 0), nextAllowedAt = store.get("nextAllowedAt", 0), timer = null;
 const STATUSES = [
-  ["", "Not sent"], ["Opened", "Chat opened (not confirmed)"], ["Sent", "Sent ✓"], ["Delivered", "Delivered ✓✓"],
+  ["", "Not sent"], ["Held", "Held: good-neighbour limit"], ["Drafted", "Email drafted / handed to email app"], ["Bounced", "Email bounced"], ["Opened", "Chat opened (not confirmed)"], ["Sent", "Sent ✓"], ["Delivered", "Delivered ✓✓"],
   ["Read", "Read (blue ✓✓)"], ["Replied", "Replied"], ["NotOnWA", "Failed: not on WhatsApp"],
   ["Failed", "Failed: other"], ["OptedOut", "Opted out"], ["Skipped", "Skipped: already had this message"]];
 const statusLabel = (k) => (STATUSES.find(x => x[0] === k) || ["", k])[1];
@@ -217,7 +289,7 @@ function parseVCF(text) {
   const out = []; let c = null;
   for (const line of lines) {
     const up = line.toUpperCase();
-    if (up.startsWith("BEGIN:VCARD")) { c = { display: "", given: "", names: [], phones: [] }; continue; }
+    if (up.startsWith("BEGIN:VCARD")) { c = { display: "", given: "", names: [], phones: [], emails: [] }; continue; }
     if (up.startsWith("END:VCARD")) { if (c) out.push(c); c = null; continue; }
     if (!c) continue;
     const idx = line.indexOf(":"); if (idx < 0) continue;
@@ -233,6 +305,9 @@ function parseVCF(text) {
       const p = splitUnescaped(val, ";").map(x => unescapeV(x).trim());
       p.forEach(x => { if (x) c.names.push(x); });
       if (p[1]) c.given = p[1];
+    } else if (prop === "EMAIL") {
+      const e = unescapeV(val).replace(/^mailto:/i, "").trim();
+      if (e.includes("@")) c.emails.push(e);
     } else if (prop === "TEL") {
       const num = unescapeV(val).replace(/^tel:/i, "").trim();
       if (num) c.phones.push({ number: num, label: telLabel(params) });
@@ -288,6 +363,8 @@ function parseCSV(text) {
         phoneCols.push({ i, label: -1, name: col });
     });
   }
+  const emailCols = [];
+  h.forEach((col, i) => { if (/e-?mail/.test(col) && !/(type|label|display|kind)/.test(col)) emailCols.push(i); });
   const gi = h.findIndex(x => x === "first name" || x === "given name" || x === "first");
   const di = h.findIndex(x => x === "name" || x === "display name" || x === "full name");
   return data.slice(1).map(r => {
@@ -300,27 +377,56 @@ function parseCSV(text) {
       const lab = pc.label >= 0 ? (r[pc.label] || "") : pc.name;
       v.split(":::").map(x => x.trim()).filter(Boolean).forEach(n => phones.push({ number: n, label: /mobile|cell/i.test(lab) ? "Mobile" : (lab.replace(/^\*\s*/, "") || "Other") }));
     }
-    return { display, given, names: display ? [...names, display] : names, phones };
+    const emails = [];
+    emailCols.forEach(i => (r[i] || "").split(":::").map(x => x.trim()).filter(x => x.includes("@")).forEach(x => emails.push(x)));
+    return { display, given, names: display ? [...names, display] : names, phones, emails };
   });
 }
 
 // ---------- build list ----------
 function rebuild() {
   const tags = parseTags($("tags").value), mobileOnly = $("mobileOnly").checked;
+  const all = $("whoAll").checked, email = isEmailMode(), pres = prefixesNow();
   const cc = $("cc").value, area = $("area").value;
   const old = new Map(rows.map(r => [r.key, r]));
   const seen = new Map();
+  const keepOld = (key, row) => {
+    const o = old.get(key);
+    row.selected = optOuts.has(key) ? false : (o ? o.selected : row.selected);
+    row.status = optOuts.has(key) ? "OptedOut" : (o ? o.status : "");
+    row.note = o ? (o.note || "") : "";
+    return row;
+  };
   for (const c of contacts) {
-    if (!c.names.some(n => matches(n, tags))) continue;
-    const first = firstName([c.given, c.display, ...c.names], tags);
-    for (const p of c.phones) {
-      if (mobileOnly && p.label !== "Mobile") continue;
-      const wa = intl(p.number, cc, area);
-      const key = wa || p.number.replace(/[^\d+]/g, "");
-      if (key.replace(/\D/g, "").length < 3 || seen.has(key)) continue;
-      const o = old.get(key);
-      seen.set(key, { key, name: c.display || c.names[0] || p.number, first, number: p.number, label: p.label, wa,
-        selected: optOuts.has(key) ? false : (o ? o.selected : true), status: optOuts.has(key) ? "OptedOut" : (o ? o.status : "") });
+    if (!all && !c.names.some(n => matches(n, tags))) continue;
+    const first = firstName([c.given, c.display, ...c.names], all ? [] : tags);
+    const phones = c.phones.filter(p => email || !mobileOnly || p.label === "Mobile")
+      .map(p => { const wa = intl(p.number, cc, area); return { p, wa, pre: localPrefix(wa, p.number) }; });
+    const q = pres.length ? phones.filter(x => pres.some(pr => x.pre.startsWith(pr))) : phones;
+    if (pres.length && !q.length) continue;
+    const name = c.display || c.names[0] || "";
+    if (!email) {
+      for (const x of q) {
+        const key = x.wa || x.p.number.replace(/[^\d+]/g, "");
+        if (key.replace(/\D/g, "").length < 3 || seen.has(key)) continue;
+        seen.set(key, keepOld(key, { key, kind: "wa", name: name || x.p.number, first, number: x.p.number, label: x.p.label, wa: x.wa, pre: x.pre, selected: !all }));
+      }
+    } else {
+      for (const e of (c.emails || [])) {
+        const key = "mailto:" + e.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.set(key, keepOld(key, { key, kind: "email", name: name || e, first, number: e, label: "Email", wa: "", pre: q[0] ? q[0].pre : "", selected: !all }));
+      }
+    }
+  }
+  if (email && harvested.length) {
+    const hs = new Set(harvested.map(([e]) => "mailto:" + e));
+    for (const r of seen.values()) if (r.status !== "OptedOut") r.selected = hs.has(r.key);
+    for (const [e, nm] of harvested) {
+      const key = "mailto:" + e;
+      if (seen.has(key)) continue;
+      const f = (nm || "").split(" ").find(w => /\p{L}/u.test(w)) || "";
+      seen.set(key, keepOld(key, { key, kind: "email", name: nm || e, first: f, number: e, label: "Harvested", wa: "", pre: "", selected: true }));
     }
   }
   rows = [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -330,8 +436,9 @@ function save() {
   store.set("rows", rows);
   store.set("sentLog", [...sentLog]); store.set("optOuts", [...optOuts]);
   store.set("blockStartedAt", blockStartedAt); store.set("inBlock", inBlock); store.set("nextAllowedAt", nextAllowedAt);
-  ["tags", "cc", "area", "msg", "via", "block", "gapMin", "qStart", "qEnd"].forEach(id => store.set("f_" + id, $(id).value));
-  ["mobileOnly", "askReply", "quietOn"].forEach(id => store.set("f_" + id, $(id).checked));
+  store.set("history", history); store.set("harvested", harvested);
+  ["tags", "cc", "area", "msg", "via", "block", "gapMin", "qStart", "qEnd", "pre1", "pre2", "pre3", "subj", "ebody"].forEach(id => store.set("f_" + id, $(id).value));
+  ["mobileOnly", "askReply", "quietOn", "whoAll", "whoTagged", "chWa", "chEmail"].forEach(id => store.set("f_" + id, $(id).checked));
 }
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 function render() {
@@ -339,20 +446,27 @@ function render() {
   if (!rows.length) {
     tb.innerHTML = `<tr><td colspan="6" class="note">${contacts.length ? "No contacts match these tags." : "No contacts loaded yet."}</td></tr>`;
   } else {
+    const q = $("search").value.trim().toLowerCase();
     tb.innerHTML = rows.map((r, i) => {
+      if (q && !(r.name.toLowerCase().includes(q) || r.number.toLowerCase().includes(q))) return "";
       const sel = `<select data-st="${i}" aria-label="Status for ${esc(r.name)}">${STATUSES.map(([k, l]) => `<option value="${k}" ${k === (r.status || "") ? "selected" : ""}>${l}</option>`).join("")}</select>`;
-      const st = r.wa ? sel : "Needs country code";
-      const cls = r.wa ? "" : "st-Needs";
+      const ok = r.kind === "email" || r.wa;
+      const st = ok ? sel : "Needs country code";
+      const cls = ok ? "" : "st-Needs";
+      const dest = r.kind === "email" ? esc(r.number) : (r.wa ? "+" + esc(r.wa) : "—");
+      const extra = [r.label, r.pre ? "code " + r.pre : "", r.note || ""].filter(Boolean).map(esc).join(" · ");
       return `<tr><td><input type="checkbox" data-i="${i}" aria-label="Send to ${esc(r.name)}" ${r.selected ? "checked" : ""}></td>
-        <td>${esc(r.name)}</td><td>${esc(r.number)}<div class="small">${esc(r.label)}</div></td>
-        <td>${r.wa ? "+" + esc(r.wa) : "—"}</td><td class="${cls}">${st}</td>
-        <td>${r.wa ? `<button class="link" data-open="${i}" type="button">Open</button>` : ""}</td></tr>`;
+        <td>${esc(r.name)}</td><td>${esc(r.number)}<div class="small">${extra}</div></td>
+        <td>${dest}</td><td class="${cls}">${st}</td>
+        <td>${r.kind !== "email" && r.wa ? `<button class="link" data-open="${i}" type="button">Open</button>` : ""}</td></tr>`;
     }).join("");
   }
   const sel = rows.filter(r => r.selected);
   const opened = sel.filter(r => r.status && !["Skipped", "OptedOut"].includes(r.status)).length;
-  const waiting = sel.filter(r => !r.status && r.wa).length;
-  $("stats").textContent = rows.length ? `${rows.length} numbers matched · ${sel.length} selected · ${opened} opened · ${waiting} waiting` : "";
+  const waiting = sel.filter(r => (!r.status || r.status === "Held") && (r.wa || r.kind === "email")).length;
+  const held = sel.filter(r => r.status === "Held").length;
+  $("stats").textContent = rows.length ? `${rows.length} ${isEmailMode() ? "email addresses" : "numbers"} · ${sel.length} selected · ${opened} sent or opened · ${waiting} waiting${held ? " · " + held + " held" : ""}` : "";
+  updateChannelUi();
   $("countLine").textContent = contacts.length ? `${contacts.length} contacts loaded` : "";
   updateProgress();
 }
@@ -365,7 +479,7 @@ function inWindow(d) {
 function fmtWait(ms) { const s = Math.ceil(ms / 1000); return s >= 120 ? Math.ceil(s / 60) + " min" : s + "s"; }
 function updateProgress() {
   const left = nextAllowedAt - Date.now();
-  const waiting = rows.filter(r => r.selected && !r.status && r.wa).length;
+  const waiting = rows.filter(r => r.selected && (!r.status || r.status === "Held") && (r.wa || r.kind === "email")).length;
   let locked = false;
   if (waiting && left > 0) { locked = true; $("progress").textContent = `Good-neighbour pause: block of ${blockSize()} done. Next block in ${fmtWait(left)}. ${waiting} waiting.`; }
   else if (waiting && !inWindow()) { locked = true; $("progress").textContent = `Outside good-neighbour hours. Sending resumes at ${String($("qStart").value).padStart(2, "0")}:00. ${waiting} waiting.`; }
@@ -373,6 +487,7 @@ function updateProgress() {
   else if (!waiting) { $("progress").textContent = "All selected clients have been opened. Use Reset statuses to send a new message."; }
   else { $("progress").textContent = `${waiting} waiting · ${inBlock} of ${blockSize()} done in this block.`; }
   $("next").disabled = !waiting || locked; $("skip").disabled = !waiting;
+  $("emailDrafts").disabled = !waiting || locked; $("emailMailto").disabled = !waiting || locked;
 }
 function tickLoop() {
   clearInterval(timer);
@@ -405,18 +520,27 @@ function openChat(r) {
   if (!$("msg").value.trim()) { alert("Type your message first."); return false; }
   if (optOuts.has(r.wa) || r.status === "OptedOut") { alert(r.name + " has opted out and won't be messaged."); return false; }
   if (sentLog.has(fp(r))) { r.status = "Skipped"; save(); render(); alert(r.name + " already received this exact message. Skipped so nobody gets it twice."); return false; }
+  const na = nextAllowed(r.wa, Date.now());
+  if (na > Date.now()) { r.status = "Held"; r.note = "Next allowed " + fmtTime(na); save(); render(); alert(r.name + " has had 2 messages in 24 hours or one in the last 6 hours. Next allowed " + fmtTime(na) + "."); return false; }
   const text = encodeURIComponent(composed(r));
   const url = $("via").value === "app" ? `whatsapp://send?phone=${r.wa}&text=${text}` : `https://wa.me/${r.wa}?text=${text}`;
-  openUrl(url); sentLog.add(fp(r)); r.status = "Opened"; save(); render(); return true;
+  openUrl(url); sentLog.add(fp(r)); recordSend(r.wa, Date.now()); r.status = "Opened"; r.note = ""; save(); render(); return true;
+}
+function eligible(r, now, fpText) {
+  if (!r.selected) return false;
+  if (r.status && r.status !== "Held") return false;
+  const key = r.kind === "email" ? r.key : r.wa;
+  if (!key) return false;
+  if (optOuts.has(key) || optOuts.has(r.key)) { r.status = "OptedOut"; return false; }
+  if (sentLog.has(key + "|" + hash(fpText))) { r.status = "Skipped"; return false; }
+  const na = nextAllowed(key, now);
+  if (na > now) { r.status = "Held"; r.note = "Next allowed " + fmtTime(na); return false; }
+  if (r.status === "Held") { r.status = ""; r.note = ""; }
+  return true;
 }
 function nextRow() {
-  for (const r of rows) {
-    if (!r.selected || r.status || !r.wa) continue;
-    if (optOuts.has(r.wa)) { r.status = "OptedOut"; continue; }
-    if (sentLog.has(fp(r))) { r.status = "Skipped"; continue; }
-    return r;
-  }
-  return null;
+  const now = Date.now();
+  return rows.find(r => r.kind !== "email" && eligible(r, now, template())) || null;
 }
 function openNext() {
   if (Date.now() < nextAllowedAt || !inWindow()) { updateProgress(); return; }
@@ -434,13 +558,74 @@ function openNext() {
   save(); updateProgress();
 }
 
+// ---------- email ----------
+function b64utf8(t) { return btoa(unescape(encodeURIComponent(t))); }
+function wrap76(b) { return b.replace(/.{1,76}/g, "$&\r\n"); }
+function encWord(t) { return /^[\x20-\x7e]*$/.test(t) ? t : "=?UTF-8?B?" + b64utf8(t) + "?="; }
+function buildEml(to, toName, subject, body) {
+  const bd = "NM_" + Math.random().toString(36).slice(2);
+  const L = ["X-Unsent: 1", "To: " + (toName ? encWord(toName.replace(/[",<>]/g, "")) + " " : "") + "<" + to + ">",
+    "Subject: " + encWord(subject), "MIME-Version: 1.0", "Date: " + new Date().toUTCString()];
+  if (!attachments.length) {
+    L.push("Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64", "", wrap76(b64utf8(body)));
+    return L.join("\r\n");
+  }
+  L.push(`Content-Type: multipart/mixed; boundary="${bd}"`, "", "--" + bd,
+    "Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64", "", wrap76(b64utf8(body)));
+  for (const a of attachments) {
+    L.push("--" + bd, `Content-Type: ${a.type || "application/octet-stream"}; name="${encWord(a.name)}"`,
+      "Content-Transfer-Encoding: base64", `Content-Disposition: attachment; filename="${encWord(a.name)}"`, "", wrap76(a.base64));
+  }
+  L.push("--" + bd + "--", "");
+  return L.join("\r\n");
+}
+function emailBlock(asDrafts) {
+  const subj = $("subj").value.trim(), body = $("ebody").value.trim();
+  if (!subj || !body) { alert("Fill in the subject and message first."); return; }
+  if (body.includes("[Write your message here.]")) { alert("Replace the [Write your message here.] line in the template first."); return; }
+  if (Date.now() < nextAllowedAt || !inWindow()) { updateProgress(); return; }
+  if (!asDrafts && attachments.length && !confirm("Email links can't carry attachments. Continue without them?")) return;
+  const now = Date.now(), fpText = subj + "\n" + body, picked = [];
+  for (const r of rows) {
+    if (picked.length >= blockSize()) break;
+    if (r.kind === "email" && eligible(r, now, fpText)) picked.push(r);
+  }
+  if (!picked.length) { save(); render(); alert("Nobody selected is ready to email right now. Check the Held times."); return; }
+  if (asDrafts) {
+    const files = picked.map((r, i) => ({ name: `${String(i + 1).padStart(2, "0")} ${r.name.replace(/[^\p{L}\p{N} ._-]/gu, "")}.eml`,
+      base64: b64utf8(buildEml(r.number, r.name, subj, body.replace(/\{name\}/g, r.first || "Valued Client"))) }));
+    if (window.nm && window.nm.saveFiles) window.nm.saveFiles(files);
+    else files.forEach(f => download(f.name, atob(f.base64), "message/rfc822"));
+  } else {
+    const bcc = picked.map(r => r.number).join(",");
+    const text = body.replace(/\{name\}/g, picked.length === 1 ? (picked[0].first || "Valued Client") : "Valued Client");
+    openUrl(`mailto:?bcc=${encodeURIComponent(bcc)}&subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(text)}`);
+  }
+  for (const r of picked) {
+    r.status = "Drafted"; r.note = (asDrafts ? "Draft created " : "Handed to email app ") + fmtTime(now);
+    sentLog.add(r.key + "|" + hash(fpText)); recordSend(r.key, now);
+  }
+  const gap = Math.max(0, parseFloat($("gapMin").value) || 0) * 60000;
+  nextAllowedAt = gap && rows.some(r => r.kind === "email" && r.selected && (!r.status || r.status === "Held")) ? now + gap : 0;
+  inBlock = 0;
+  save(); render();
+}
+function updateChannelUi() {
+  const e = isEmailMode();
+  $("waBox").hidden = e; $("emailBox").hidden = !e; $("viaRow").hidden = e;
+  $("waButtons").hidden = e; $("emailButtons").hidden = !e; $("harvestRow").hidden = !e;
+  $("sendTitle").textContent = e ? "4 · Send emails" : "4 · Send via WhatsApp";
+  $("tags").disabled = $("whoAll").checked;
+  $("attachList").textContent = attachments.length ? "Attachments: " + attachments.map(a => a.name).join(", ") : "No attachments (attachments are added to email drafts).";
+}
+
 // ---------- report ----------
 function buildReport() {
   const sel = rows.filter(r => r.selected || r.status);
   const by = (k) => sel.filter(r => r.status === k);
   const notOnWA = by("NotOnWA"), failed = by("Failed"), opened = by("Opened"), sent = by("Sent"), delivered = by("Delivered");
   const read = by("Read"), replied = by("Replied"), opted = by("OptedOut"), skipped = by("Skipped");
-  const waiting = sel.filter(r => r.selected && !r.status && r.wa), noCode = sel.filter(r => !r.wa);
+  const waiting = sel.filter(r => r.selected && !r.status && (r.wa || r.kind === "email")), noCode = sel.filter(r => r.kind !== "email" && !r.wa);
   const reached = sent.length + delivered.length + read.length + replied.length;
   const seen = read.length + replied.length;
   const pct = (a, b) => b ? Math.round(a * 100 / b) + "%" : "–";
@@ -451,7 +636,7 @@ function buildReport() {
   L.push(`Didn't go through: ${notOnWA.length + failed.length} · Not confirmed sent: ${opened.length} · Not seen yet: ${sent.length + delivered.length} · Opted out: ${opted.length} · Duplicates blocked: ${skipped.length} · Still to send: ${waiting.length}`);
   L.push("");
   L.push("WHAT IT MEANS");
-  if (!reached && !opened.length) L.push("• Nothing has been sent yet.");
+  if (!reached && !opened.length && !sel.some(r => r.status === "Drafted")) L.push("• Nothing has been sent yet.");
   if (sent.length + delivered.length) L.push(`• ${sent.length + delivered.length} client(s) have not opened the message yet (no blue ticks, no reply). Follow up with a call, or send the SMS version from the phone.`);
   if (notOnWA.length) L.push(`• ${notOnWA.length} number(s) are not on WhatsApp. Use "Export not seen + failed" and send these by SMS from the Names Miner phone app.`);
   if (failed.length) L.push(`• ${failed.length} message(s) failed for another reason. Set them back to "Not sent" to try again. Duplicates stay blocked for everyone else.`);
@@ -461,12 +646,19 @@ function buildReport() {
   if (skipped.length) L.push(`• ${skipped.length} duplicate(s) blocked: they already had this exact message.`);
   if (waiting.length) { const nb = Math.ceil(waiting.length / blockSize()); L.push(`• ${waiting.length} client(s) still waiting: ${nb} more block(s) of ${blockSize()}, about ${(nb - 1) * (+$("gapMin").value || 0)} min of gaps.`); }
   if (reached && !(sent.length + delivered.length + notOnWA.length + failed.length + opened.length)) L.push("• Everyone messaged has seen it. Nothing needs action.");
+  const drafted = by("Drafted"), held = by("Held"), bounced = by("Bounced");
+  if (drafted.length) L.push(`• ${drafted.length} email(s) drafted or handed to your email app. Make sure each was sent, then set it to Sent.`);
+  if (bounced.length) L.push(`• ${bounced.length} email(s) bounced. Check the address, or reach these clients by phone.`);
+  if (held.length) L.push(`• ${held.length} client(s) held back by the 2-in-24-hours / 6-hours-apart rule. They're included again once their time passes.`);
   const sec = (title, list) => { if (!list.length) return; L.push(""); L.push(`${title} (${list.length})`); list.forEach(r => L.push(`• ${r.name} (${r.wa ? "+" + r.wa : r.number})`)); };
   sec("DID NOT GO THROUGH: NOT ON WHATSAPP", notOnWA);
   sec("DID NOT GO THROUGH: OTHER", failed);
   sec("NOT OPENED YET: SENT ✓", sent);
   sec("NOT OPENED YET: DELIVERED ✓✓", delivered);
   sec("CHAT OPENED, NOT CONFIRMED SENT", opened);
+  sec("EMAILS DRAFTED / HANDED TO EMAIL APP", drafted);
+  sec("EMAILS BOUNCED", bounced);
+  sec("HELD BY GOOD-NEIGHBOUR LIMIT", held);
   sec("READ (BLUE ✓✓)", read);
   sec("REPLIED", replied);
   sec("OPTED OUT", opted);
@@ -494,9 +686,43 @@ function download(name, text, type) {
 const csvCell = (s) => '"' + String(s).replace(/"/g, '""') + '"';
 
 // ---------- wiring ----------
-["tags", "cc", "area", "msg", "via", "block", "gapMin", "qStart", "qEnd"].forEach(id => { const v = store.get("f_" + id, null); if (v !== null) $(id).value = v; });
-["mobileOnly", "askReply", "quietOn"].forEach(id => { const v = store.get("f_" + id, null); if (v !== null) $(id).checked = v; });
-["tags", "cc", "area", "mobileOnly"].forEach(id => $(id).addEventListener("change", rebuild));
+["tags", "cc", "area", "msg", "via", "block", "gapMin", "qStart", "qEnd", "pre1", "pre2", "pre3", "subj", "ebody"].forEach(id => { const v = store.get("f_" + id, null); if (v !== null) $(id).value = v; });
+["mobileOnly", "askReply", "quietOn", "whoAll", "whoTagged", "chWa", "chEmail"].forEach(id => { const v = store.get("f_" + id, null); if (v !== null) $(id).checked = v; });
+if (!$("subj").value) $("subj").value = DEFAULT_SUBJECT;
+if (!$("ebody").value) $("ebody").value = DEFAULT_BODY;
+["tags", "cc", "area", "mobileOnly", "whoAll", "whoTagged", "chWa", "chEmail", "pre1", "pre2", "pre3"].forEach(id => $(id).addEventListener("change", rebuild));
+["subj", "ebody"].forEach(id => $(id).addEventListener("change", save));
+$("search").addEventListener("input", render);
+$("harvestBtn").onclick = () => $("harvestFile").click();
+$("harvestFile").onchange = async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  const text = await f.text(), out = new Map();
+  for (const line of text.split(/\r?\n/)) {
+    const m = /[A-Za-z0-9._%+'-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/.exec(line); if (!m) continue;
+    const addr = m[0].toLowerCase(); if (out.has(addr)) continue;
+    const cols = parseCSVRows(line)[0] || [];
+    out.set(addr, cols.length > 1 && cols[0].trim().toLowerCase() === addr ? (cols[1] || "").trim() : "");
+  }
+  if (!out.size) { alert("No email addresses found in that file."); return; }
+  harvested = [...out.entries()];
+  $("chEmail").checked = true;
+  rebuild();
+  alert(`${out.size} harvested addresses loaded and selected. Everyone else was unticked.`);
+  e.target.value = "";
+};
+$("attachBtn").onclick = () => $("attachFile").click();
+$("attachFile").onchange = async (e) => {
+  for (const f of e.target.files) {
+    const buf = new Uint8Array(await f.arrayBuffer());
+    let bin = ""; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+    attachments.push({ name: f.name, type: f.type, base64: btoa(bin) });
+  }
+  e.target.value = ""; updateChannelUi();
+};
+$("clearAttach").onclick = () => { attachments = []; updateChannelUi(); };
+$("resetTpl").onclick = () => { $("subj").value = DEFAULT_SUBJECT; $("ebody").value = DEFAULT_BODY; save(); };
+$("emailDrafts").onclick = () => emailBlock(true);
+$("emailMailto").onclick = () => emailBlock(false);
 ["msg", "via", "block", "gapMin", "qStart", "qEnd", "askReply", "quietOn"].forEach(id => $(id).addEventListener("change", () => { save(); updateProgress(); }));
 $("pick").onclick = () => $("file").click();
 $("file").onchange = (e) => loadFiles([...e.target.files]);
@@ -509,8 +735,9 @@ $("rows").addEventListener("change", e => {
   if (i !== undefined) { rows[i].selected = e.target.checked; save(); render(); }
   if (si !== undefined) {
     const r = rows[si], v = e.target.value;
-    if (v === "OptedOut") { optOuts.add(r.wa); r.selected = false; } else optOuts.delete(r.wa);
-    if (v === "" || v === "Failed" || v === "NotOnWA") sentLog.delete(fp(r)); // not received: allow a later retry
+    const k = r.kind === "email" ? r.key : r.wa;
+    if (v === "OptedOut") { optOuts.add(k); r.selected = false; } else optOuts.delete(k);
+    if (r.kind !== "email" && (v === "" || v === "Failed" || v === "NotOnWA")) sentLog.delete(fp(r)); // not received: allow a later retry
     r.status = v; save(); render(); if (!$("report").hidden) $("report").textContent = buildReport();
   }
 });
@@ -518,31 +745,32 @@ $("rows").addEventListener("click", e => { const i = e.target.dataset.open; if (
 $("reportBtn").onclick = () => { const h = !$("report").hidden; $("report").hidden = h; $("reportActions").hidden = h; if (!h) $("report").textContent = buildReport(); };
 $("exportReport").onclick = () => download("names-miner-report.txt", buildReport(), "text/plain");
 $("exportNotSeen").onclick = () => {
-  const list = rows.filter(r => ["Sent", "Delivered", "NotOnWA", "Failed", "Opened"].includes(r.status));
+  const list = rows.filter(r => ["Sent", "Delivered", "NotOnWA", "Failed", "Opened", "Bounced", "Drafted"].includes(r.status));
   const lines = ["Name,Number,WhatsApp number,Status"].concat(list.map(r => [r.name, r.number, r.wa ? "+" + r.wa : "", statusLabel(r.status)].map(csvCell).join(",")));
   download("names-miner-follow-up.csv", "\uFEFF" + lines.join("\r\n"), "text/csv");
 };
 $("next").onclick = openNext;
 $("skip").onclick = () => { const r = nextRow(); if (r) { r.status = "Skipped"; save(); render(); } };
 document.addEventListener("keydown", e => { if ((e.key === "n" || e.key === "N") && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) openNext(); });
-$("all").onclick = () => { rows.forEach(r => r.selected = true); save(); render(); };
-$("none").onclick = () => { rows.forEach(r => r.selected = false); save(); render(); };
+const shownRows = () => { const q = $("search").value.trim().toLowerCase(); return rows.filter(r => !q || r.name.toLowerCase().includes(q) || r.number.toLowerCase().includes(q)); };
+$("all").onclick = () => { shownRows().forEach(r => { if (r.status !== "OptedOut") r.selected = true; }); save(); render(); };
+$("none").onclick = () => { shownRows().forEach(r => r.selected = false); save(); render(); };
 $("reset").onclick = () => {
   if (!confirm("Clear statuses to start a new message? Opt-outs stay, and anyone who already got the current message is still protected from getting it twice.")) return;
   rows.forEach(r => { if (r.status !== "OptedOut") r.status = ""; }); inBlock = 0; nextAllowedAt = 0; save(); render();
 };
 $("exportCsv").onclick = () => {
   if (!rows.length) return;
-  const lines = ["Name,Number,Type,WhatsApp number,Selected,Status"].concat(rows.map(r => [r.name, r.number, r.label, r.wa ? "+" + r.wa : "", r.selected ? "Yes" : "No", statusLabel(r.status || "")].map(csvCell).join(",")));
+  const lines = ["Name,Number or email,Type,Code,Send to,Selected,Status,Note"].concat(rows.map(r => [r.name, r.number, r.label, r.pre || "", r.kind === "email" ? r.number : (r.wa ? "+" + r.wa : ""), r.selected ? "Yes" : "No", statusLabel(r.status || ""), r.note || ""].map(csvCell).join(",")));
   download("names-miner-clients.csv", "﻿" + lines.join("\r\n"), "text/csv");
 };
 $("exportVcf").onclick = () => {
   if (!rows.length) return;
-  const v = rows.filter(r => r.selected).map(r => `BEGIN:VCARD\r\nVERSION:3.0\r\nFN:${r.name}\r\nTEL;TYPE=CELL:${r.wa ? "+" + r.wa : r.number}\r\nEND:VCARD`).join("\r\n");
+  const v = rows.filter(r => r.selected).map(r => `BEGIN:VCARD\r\nVERSION:3.0\r\nFN:${r.name}\r\n${r.kind === "email" ? "EMAIL:" + r.number : "TEL;TYPE=CELL:" + (r.wa ? "+" + r.wa : r.number)}\r\nEND:VCARD`).join("\r\n");
   download("names-miner-clients.vcf", v + "\r\n", "text/vcard");
 };
 $("copyNums").onclick = async () => {
-  const t = rows.filter(r => r.selected).map(r => r.wa ? "+" + r.wa : r.number).join("\n");
+  const t = rows.filter(r => r.selected).map(r => r.kind === "email" ? r.number : (r.wa ? "+" + r.wa : r.number)).join("\n");
   try { await navigator.clipboard.writeText(t); alert("Numbers copied."); } catch (e) { prompt("Copy these numbers:", t.replace(/\n/g, ", ")); }
 };
 render();
