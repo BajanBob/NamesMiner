@@ -11,8 +11,8 @@ android {
         applicationId = "com.namesminer.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = 4
+        versionName = "1.3"
     }
 
     // One fixed signing key so each new build installs over the previous one.

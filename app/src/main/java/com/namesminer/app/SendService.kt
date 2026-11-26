@@ -77,12 +77,19 @@ class SendService : Service() {
         quietEnd = intent.getIntExtra(EXTRA_QUIET_END, -1)
 
         queue.clear()
+        val now = System.currentTimeMillis()
         for (r in Store.recipients) {
-            if (!r.selected || r.id in Store.optOuts) continue
-            if (r.status != Status.NEW && r.status != Status.FAILED) continue
+            if (!r.selected || r.isEmail || r.id in Store.optOuts) continue
+            if (r.status != Status.NEW && r.status != Status.FAILED && r.status != Status.HELD) continue
             if (Store.fingerprint(r.id, text) in Store.sentLog) {
                 r.status = Status.SKIPPED
                 r.note = "Already received this exact message"
+                continue
+            }
+            val next = Store.nextAllowedAt(r.id, now)
+            if (next > now) {
+                r.status = Status.HELD
+                r.note = "Good-neighbour limit: next allowed " + GoodNeighbour.when_(next)
                 continue
             }
             r.resetStatus()
@@ -107,11 +114,7 @@ class SendService : Service() {
         return START_NOT_STICKY
     }
 
-    private fun inQuietWindow(): Boolean {
-        if (quietStart < 0 || quietEnd < 0 || quietStart == quietEnd) return true
-        val h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-        return if (quietStart < quietEnd) h in quietStart until quietEnd else (h >= quietStart || h < quietEnd)
-    }
+    private fun inQuietWindow(): Boolean = GoodNeighbour.inWindow(quietStart, quietEnd)
 
     private fun msUntilWindowOpens(): Long {
         val now = Calendar.getInstance()
@@ -177,6 +180,15 @@ class SendService : Service() {
     }
 
     private fun sendTo(r: Recipient) {
+        val now = System.currentTimeMillis()
+        val next = Store.nextAllowedAt(r.id, now)
+        if (next > now) {
+            r.status = Status.HELD
+            r.note = "Good-neighbour limit: next allowed " + GoodNeighbour.when_(next)
+            Store.save(this)
+            Store.changed()
+            return
+        }
         try {
             val sms: SmsManager = if (Build.VERSION.SDK_INT >= 31) {
                 getSystemService(SmsManager::class.java)
@@ -203,6 +215,7 @@ class SendService : Service() {
             r.updatedAt = System.currentTimeMillis()
             r.sentAt = r.updatedAt
             Store.sentLog.add(Store.fingerprint(r.id, text))
+            Store.recordSend(r.id, r.sentAt)
         } catch (e: Exception) {
             r.status = Status.FAILED
             r.note = e.message ?: "Could not send"

@@ -15,7 +15,8 @@ enum class Status(val label: String) {
     CONFIRMED("Confirmed"),
     FAILED("Failed"),
     SKIPPED("Skipped: already had this message"),
-    OPTED_OUT("Opted out")
+    OPTED_OUT("Opted out"),
+    HELD("Held: good-neighbour limit")
 }
 
 class Recipient(
@@ -31,8 +32,11 @@ class Recipient(
     var partsDelivered: Int = 0,
     var note: String = "",
     var updatedAt: Long = 0L,
-    var sentAt: Long = 0L
+    var sentAt: Long = 0L,
+    var prefix: String = ""
 ) {
+    val isEmail: Boolean get() = id.startsWith("mailto:")
+
     fun resetStatus() {
         if (status == Status.OPTED_OUT) return
         status = Status.NEW
@@ -48,7 +52,7 @@ class Recipient(
         .put("number", number).put("label", label).put("selected", selected)
         .put("status", status.name).put("partsTotal", partsTotal)
         .put("partsSent", partsSent).put("partsDelivered", partsDelivered)
-        .put("note", note).put("updatedAt", updatedAt).put("sentAt", sentAt)
+        .put("note", note).put("updatedAt", updatedAt).put("sentAt", sentAt).put("prefix", prefix)
 
     companion object {
         fun fromJson(o: JSONObject) = Recipient(
@@ -64,12 +68,13 @@ class Recipient(
             partsDelivered = o.optInt("partsDelivered"),
             note = o.optString("note"),
             updatedAt = o.optLong("updatedAt"),
-            sentAt = o.optLong("sentAt")
+            sentAt = o.optLong("sentAt"),
+            prefix = o.optString("prefix")
         )
     }
 }
 
-/** In-memory list of matched clients, saved to app storage. All access happens on the main thread. */
+/** In-memory list of contacts, saved to app storage. All access happens on the main thread. */
 object Store {
     val recipients = mutableListOf<Recipient>()
 
@@ -77,13 +82,24 @@ object Store {
     var running = false
     var progressLine = ""
 
-    /** "number|message fingerprint" for every message already sent: the no-duplicates guard. */
+    /** "id|message fingerprint" for every message already sent: the no-duplicates guard. */
     val sentLog = mutableSetOf<String>()
-    /** Numbers that replied STOP (or similar). They are never messaged again. */
+    /** People who replied STOP (or were marked opted out). They are never messaged again. */
     val optOuts = mutableSetOf<String>()
+    /** Send times per person (number or email), for the 2-per-24-hours / 6-hours-apart rule. */
+    val history = mutableMapOf<String, MutableList<Long>>()
 
     fun fingerprint(id: String, template: String): String =
         id + "|" + template.trim().replace(Regex("\\s+"), " ").hashCode()
+
+    fun nextAllowedAt(id: String, now: Long = System.currentTimeMillis()): Long =
+        GoodNeighbour.nextAllowedAt(history[id], now)
+
+    fun recordSend(id: String, now: Long = System.currentTimeMillis()) {
+        val list = history.getOrPut(id) { mutableListOf() }
+        list.add(now)
+        list.removeAll { now - it > 2 * GoodNeighbour.DAY_MS }
+    }
 
     private var loaded = false
     private val main = Handler(Looper.getMainLooper())
@@ -101,6 +117,13 @@ object Store {
         loaded = true
         readSet(ctx, "sentLog", sentLog)
         readSet(ctx, "optOuts", optOuts)
+        try {
+            val h = JSONObject(prefs(ctx).getString("history", "{}") ?: "{}")
+            for (k in h.keys()) {
+                val arr = h.getJSONArray(k)
+                history[k] = MutableList(arr.length()) { arr.getLong(it) }
+            }
+        } catch (e: Exception) { }
         val raw = prefs(ctx).getString("recipients", null) ?: return
         try {
             val arr = JSONArray(raw)
@@ -121,10 +144,13 @@ object Store {
     fun save(ctx: Context) {
         val arr = JSONArray()
         recipients.forEach { arr.put(it.toJson()) }
+        val h = JSONObject()
+        history.forEach { (k, v) -> h.put(k, JSONArray(v)) }
         prefs(ctx).edit()
             .putString("recipients", arr.toString())
             .putString("sentLog", JSONArray(sentLog.toList()).toString())
             .putString("optOuts", JSONArray(optOuts.toList()).toString())
+            .putString("history", h.toString())
             .apply()
     }
 
@@ -138,7 +164,7 @@ object Store {
 
     fun find(id: String): Recipient? = recipients.firstOrNull { it.id == id }
 
-    /** Replace the list with a fresh scan, keeping selection and status for numbers already known. */
+    /** Replace the list with a fresh scan, keeping selection and status for entries already known. */
     fun replaceWithScan(found: List<Recipient>) {
         val old = recipients.associateBy { it.id }
         recipients.clear()
